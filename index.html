@@ -80,6 +80,45 @@
   }
   #crash.on { opacity: .92; }
 
+  /* ---------- Wipeout / leaderboard ---------- */
+  .veil {
+    position: fixed; inset: 0; display: grid; place-items: center; z-index: 5;
+    background: rgba(10,13,22,.62); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+    opacity: 0; pointer-events: none; transition: opacity 320ms ease;
+  }
+  .veil.on { opacity: 1; pointer-events: auto; }
+  .panel { text-align: center; padding: 0 8vw; max-width: 560px; }
+  .ptitle {
+    font-size: clamp(15px, 3vw, 21px); font-weight: 200; letter-spacing: .48em; text-indent: .48em;
+    text-transform: uppercase; color: #ffd9d9; margin: 0 0 22px;
+  }
+  .pscore { font-size: clamp(38px, 9vw, 72px); font-weight: 200; letter-spacing: .04em; line-height: 1;
+            font-variant-numeric: tabular-nums; }
+  .pmeta { font-size: 10px; font-weight: 300; letter-spacing: .30em; text-transform: uppercase;
+           opacity: .5; margin-top: 10px; }
+  .pq { font-size: clamp(11px, 1.9vw, 13px); font-weight: 300; letter-spacing: .30em;
+        text-transform: uppercase; opacity: .72; margin: 30px 0 18px; }
+  .prow { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    appearance: none; cursor: pointer; font: inherit;
+    background: rgba(255,255,255,.06); color: #fff;
+    border: 1px solid rgba(255,255,255,.22); border-radius: 999px;
+    padding: 11px 22px; font-size: 11px; font-weight: 300; letter-spacing: .22em;
+    text-transform: uppercase; transition: background 180ms ease, border-color 180ms ease;
+  }
+  .btn:hover { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.42); }
+  .btn.dim { opacity: .55; }
+  #lbList { list-style: none; margin: 22px 0 26px; padding: 0; }
+  #lbList li {
+    display: flex; align-items: baseline; gap: 14px; padding: 9px 2px;
+    border-bottom: 1px solid rgba(255,255,255,.10);
+    font-size: 13px; font-weight: 300; letter-spacing: .06em; font-variant-numeric: tabular-nums;
+  }
+  #lbList li.top { color: #ffd48a; }
+  #lbList .rk { opacity: .4; width: 20px; text-align: left; font-size: 11px; }
+  #lbList .sc { flex: 1; text-align: left; font-size: 17px; }
+  #lbList .ds { opacity: .55; font-size: 11px; letter-spacing: .18em; }
+
   /* ---------- Title ---------- */
   #title {
     position: fixed; inset: 0; opacity: 1; transition: opacity 1000ms ease;
@@ -127,6 +166,26 @@
 <div id="hint"></div>
 <div id="crash">Wipeout</div>
 <div id="flash"></div>
+
+<div id="wipe" class="veil"><div class="panel">
+  <p class="ptitle">Wipeout</p>
+  <div class="pscore" id="wScore">0</div>
+  <div class="pmeta" id="wMeta">0 M</div>
+  <p class="pq" id="wQ">Keep going?</p>
+  <div class="prow">
+    <button class="btn" id="btnY">Y &nbsp;·&nbsp; Keep going</button>
+    <button class="btn dim" id="btnN">N &nbsp;·&nbsp; End run</button>
+  </div>
+</div></div>
+
+<div id="board" class="veil"><div class="panel">
+  <p class="ptitle">Best runs</p>
+  <ol id="lbList"></ol>
+  <div class="prow">
+    <button class="btn" id="btnAgain">Ride again</button>
+    <button class="btn dim" id="btnCard">Save card</button>
+  </div>
+</div></div>
 
 <div id="title">
   <canvas id="titlecv"></canvas>
@@ -221,18 +280,20 @@ const STEER_MAX   = 14;
 const STEER_FRIC  = 6;
 const AIR_STEER   = 0.35;
 const GRAVITY     = -32;
-const JUMP_MIN    = 8;
-const JUMP_MAX    = 22;
-const CHARGE_MAX  = 0.8;
+const JUMP_POP    = 9.5;      // hop added on press, on top of surface velocity
+const SURF_VY_MAX = 24;       // cap on surface-follow lift (anti-catapult)
 const BANK_MAX    = 30 * Math.PI / 180;
 const BANK_RATE   = 6;
 const ALIGN_RATE  = 8;
-const FLIP_RATE   = 360;      // deg/sec
-const LAND_TOL    = 25;       // deg from upright
+const FLIP_RATE   = 360;      // deg/sec, backflip
+const ROLL_RATE   = 400;      // deg/sec, barrel roll off an angled kicker
+const LAND_TOL    = 25;       // deg of pitch from upright
+const ROLL_TOL    = 40;       // deg of roll from upright — deliberately forgiving
 const BOOST_MUL   = 1.15;
 const BOOST_TIME  = 2.0;
 
 const RAMP_L = 8.0, RAMP_W = 5.5, RAMP_H = 1.9;
+const RAMP_BIG_W = 15;        // the full-width feature kicker
 
 const DAY_LEN = 240;          // 4 minute cycle
 
@@ -255,13 +316,28 @@ const el = {
   flash:  document.getElementById('flash'),
   title:  document.getElementById('title'),
   titlecv:document.getElementById('titlecv'),
-  prompt: document.getElementById('prompt')
+  prompt: document.getElementById('prompt'),
+  wipe:   document.getElementById('wipe'),
+  wScore: document.getElementById('wScore'),
+  wMeta:  document.getElementById('wMeta'),
+  wQ:     document.getElementById('wQ'),
+  btnY:   document.getElementById('btnY'),
+  btnN:   document.getElementById('btnN'),
+  board:  document.getElementById('board'),
+  lbList: document.getElementById('lbList'),
+  btnAgain: document.getElementById('btnAgain'),
+  btnCard:  document.getElementById('btnCard')
 };
 
 if (isTouch) el.prompt.textContent = 'Tap to start';
 
 let bestScore = 0;
-try { bestScore = parseInt(localStorage.getItem('adh_best') || '0', 10) || 0; } catch (e) { /* private mode */ }
+let runs = [];
+try {
+  bestScore = parseInt(localStorage.getItem('adh_best') || '0', 10) || 0;
+  runs = JSON.parse(localStorage.getItem('adh_runs') || '[]');
+  if (!Array.isArray(runs)) runs = [];
+} catch (e) { /* private mode */ }
 el.best.textContent = bestScore.toLocaleString('en-US');
 
 /* ====================================================================== */
@@ -553,18 +629,32 @@ function terrainHeight(x, z) {
   return h;
 }
 
-// Ramp surface offset, in metres, above the raw terrain.
+// Ramp surface offset, in metres, above the raw terrain. The lateral edges are
+// tapered: a hard edge lets you step sideways onto full ramp height in one
+// frame, which the surface-follow velocity reads as a huge upward throw.
+let _rampSpin = 0;            // spin axis of the ramp under the last query
 function rampRise(x, z) {
+  _rampSpin = 0;
   for (let i = 0; i < chunks.length; i++) {
     const c = chunks[i];
-    if (Math.abs(c.cz - z) > CHUNK_D * 0.5 + RAMP_L) continue;
+    if (Math.abs(c.cz - z) > CHUNK_D * 0.5 + RAMP_BIG_W) continue;
     for (let r = 0; r < c.pn; r++) {
-      const dx = x - c.px[r];
-      if (dx < -RAMP_W * 0.5 || dx > RAMP_W * 0.5) continue;
-      const dz = z - c.pz[r];
+      const wx = x - c.px[r], wz = z - c.pz[r];
+      const yaw = c.pr[r];
+      let dx = wx, dz = wz;
+      if (yaw !== 0) {
+        const cs = Math.cos(yaw), sn = Math.sin(yaw);
+        dx = wx * cs - wz * sn;
+        dz = wx * sn + wz * cs;
+      }
       if (dz < -RAMP_L * 0.5 || dz > RAMP_L * 0.5) continue;
+      const hw = c.pw[r] * 0.5, adx = Math.abs(dx);
+      if (adx > hw) continue;
       const t = (RAMP_L * 0.5 - dz) / RAMP_L;
-      return t * t * RAMP_H;
+      _rampSpin = c.ps[r];
+      // 1 across the middle, easing to 0 at the edge. MathUtils.smoothstep is
+      // (x, min, max) and early-returns 0 below min, so it cannot be inverted.
+      return t * t * RAMP_H * (1 - smoothstep(adx, hw * 0.62, hw));
     }
   }
   return 0;
@@ -733,7 +823,9 @@ function makeChunk() {
     k: 0, cz: 0, mesh, geo,
     tx: new Float32Array(MAX_TREE), tz: new Float32Array(MAX_TREE), ts: new Float32Array(MAX_TREE), tn: 0,
     rx: new Float32Array(MAX_ROCK), rz: new Float32Array(MAX_ROCK), rs: new Float32Array(MAX_ROCK), rn: 0,
-    px: new Float32Array(MAX_RAMP), pz: new Float32Array(MAX_RAMP), pn: 0,
+    px: new Float32Array(MAX_RAMP), pz: new Float32Array(MAX_RAMP),
+    pr: new Float32Array(MAX_RAMP), pw: new Float32Array(MAX_RAMP),
+    ps: new Float32Array(MAX_RAMP), pn: 0,
     slot: 0
   };
 }
@@ -767,41 +859,72 @@ function buildChunk(c, k) {
   scatterProps(c, k);
 }
 
+/* A repeating rhythm instead of uniform scatter. One cycle is 350m: thread the
+   trees, breathe, play on small kickers, then commit to one full-width feature
+   and land it clean. Density still creeps up with distance on top of this. */
+const SECTIONS = [
+  { trees: 13, rocks: 6, ramps: 0 },                    // slalom
+  { trees: 17, rocks: 8, ramps: 0 },                    // slalom, tighter
+  { trees: 3,  rocks: 1, ramps: 0 },                    // run-up
+  { trees: 6,  rocks: 3, ramps: 2 },                    // play
+  { trees: 2,  rocks: 0, ramps: 0 },                    // run-up
+  { trees: 2,  rocks: 0, ramps: 1, big: true },         // the feature
+  { trees: 4,  rocks: 1, ramps: 0 }                     // landing / recover
+];
+
 function scatterProps(c, k) {
   const rnd = mulberry32((k * 9781 + 13) | 0);
   const travelled = Math.max(0, k * CHUNK_D);
-  const diff = Math.min(1, travelled / 2600);
+  const diff = Math.min(1, travelled / 3000);
+  const sec = SECTIONS[((k % SECTIONS.length) + SECTIONS.length) % SECTIONS.length];
+  const load = 0.75 + diff * 0.55;
 
   // ramps first, so trees and rocks can keep clear of them
-  c.pn = Math.min(MAX_RAMP, 1 + ((rnd() * 2.4) | 0));
+  c.pn = Math.min(MAX_RAMP, sec.ramps);
   for (let i = 0; i < c.pn; i++) {
-    c.px[i] = (rnd() * 2 - 1) * 25;
-    c.pz[i] = c.cz + (rnd() - 0.5) * (CHUNK_D - RAMP_L * 2);
+    if (sec.big) {
+      c.px[i] = (rnd() * 2 - 1) * 4;
+      c.pz[i] = c.cz;
+      c.pw[i] = RAMP_BIG_W;
+      // every other feature is angled, which throws a barrel roll instead
+      const angled = (Math.floor(k / SECTIONS.length) & 1) === 1;
+      c.ps[i] = angled ? (rnd() < 0.5 ? -1 : 1) : 0;
+      c.pr[i] = c.ps[i] * (30 * Math.PI / 180);
+    } else {
+      c.px[i] = (rnd() * 2 - 1) * 14;
+      c.pz[i] = c.cz + (i - (c.pn - 1) * 0.5) * 20 + (rnd() - 0.5) * 6;
+      c.pw[i] = RAMP_W;
+      c.ps[i] = rnd() < 0.35 ? (rnd() < 0.5 ? -1 : 1) : 0;
+      c.pr[i] = c.ps[i] * (30 * Math.PI / 180);
+    }
   }
 
   const clearOfRamp = (x, z, pad) => {
     for (let i = 0; i < c.pn; i++) {
-      if (Math.abs(x - c.px[i]) < RAMP_W * 0.5 + pad && Math.abs(z - c.pz[i]) < RAMP_L * 0.5 + pad) return false;
+      if (Math.abs(x - c.px[i]) < c.pw[i] * 0.5 + pad && Math.abs(z - c.pz[i]) < RAMP_L * 0.5 + pad) return false;
     }
     return true;
   };
 
   c.tn = 0;
-  const wantTrees = Math.round(lerp(8, 23, diff));
-  for (let a = 0; a < wantTrees * 2 && c.tn < Math.min(MAX_TREE, wantTrees); a++) {
-    const x = (rnd() * 2 - 1) * 64;
+  const wantTrees = Math.min(MAX_TREE, Math.round(sec.trees * load));
+  for (let a = 0; a < wantTrees * 3 && c.tn < wantTrees; a++) {
+    // run-up sections keep the middle open and push trees to the treeline
+    const x = sec.trees <= 4
+      ? (rnd() < 0.5 ? -1 : 1) * (38 + rnd() * 26)
+      : (rnd() * 2 - 1) * 64;
     const z = c.cz + (rnd() - 0.5) * CHUNK_D;
-    if (!clearOfRamp(x, z, 5)) continue;
+    if (!clearOfRamp(x, z, 7)) continue;
     c.tx[c.tn] = x; c.tz[c.tn] = z; c.ts[c.tn] = 0.75 + rnd() * 0.8;
     c.tn++;
   }
 
   c.rn = 0;
-  const wantRocks = Math.round(lerp(4, 15, diff));
-  for (let a = 0; a < wantRocks * 2 && c.rn < Math.min(MAX_ROCK, wantRocks); a++) {
+  const wantRocks = Math.min(MAX_ROCK, Math.round(sec.rocks * load));
+  for (let a = 0; a < wantRocks * 3 && c.rn < wantRocks; a++) {
     const x = (rnd() * 2 - 1) * 44;
     const z = c.cz + (rnd() - 0.5) * CHUNK_D;
-    if (!clearOfRamp(x, z, 4)) continue;
+    if (!clearOfRamp(x, z, 6)) continue;
     c.rx[c.rn] = x; c.rz[c.rn] = z; c.rs[c.rn] = 0.55 + rnd() * 0.95;
     c.rn++;
   }
@@ -840,9 +963,9 @@ function scatterProps(c, k) {
       const pitch = Math.atan2(
         terrainHeight(x, z + RAMP_L * 0.5) - terrainHeight(x, z - RAMP_L * 0.5), RAMP_L);
       _v3.set(x, terrainHeight(x, z), z);
-      _euler.set(-pitch, 0, 0);
+      _euler.set(-pitch, -c.pr[i], 0, 'YXZ');
       _q.setFromEuler(_euler);
-      _v3b.set(1, 1, 1);
+      _v3b.set(c.pw[i] / RAMP_W, 1, 1);
       _m4.compose(_v3, _q, _v3b);
       rampMesh.setMatrixAt(s * MAX_RAMP + i, _m4);
     } else {
@@ -1164,12 +1287,12 @@ function onKey(e, down) {
   const k = e.code;
   if (k === 'KeyA' || k === 'ArrowLeft') { steerL = down; e.preventDefault(); }
   else if (k === 'KeyD' || k === 'ArrowRight') { steerR = down; e.preventDefault(); }
-  else if (k === 'Space') { jumpHeld = down; e.preventDefault(); }
+  else if (k === 'Space') { if (down && !jumpHeld) jumpPressed = true; jumpHeld = down; e.preventDefault(); }
 }
 window.addEventListener('keydown', e => { if (!e.repeat) onKey(e, true); }, { passive: false });
 window.addEventListener('keyup', e => onKey(e, false), { passive: false });
 function clearInput() {
-  steerL = steerR = jumpHeld = false;
+  steerL = steerR = jumpHeld = jumpPressed = false;
   activeTouches.clear();
   touchSteerInput = 0;
 }
@@ -1188,6 +1311,7 @@ function recomputeTouch() {
     } else jump = true;
   });
   touchSteerInput = found ? clamp(steer, -1, 1) : 0;
+  if (jump && !jumpHeld) jumpPressed = true;
   jumpHeld = jump;
 }
 
@@ -1279,13 +1403,14 @@ function setupMotion() {
 }
 
 function updateHint() {
-  if (!isTouch) el.hint.textContent = 'A / D to carve — hold SPACE to jump';
-  else if (tiltOn) el.hint.textContent = 'Tilt to carve — hold to jump';
-  else el.hint.textContent = 'Drag lower half to carve — hold upper to jump';
+  if (!isTouch) el.hint.textContent = 'A / D to carve — SPACE at the lip, hold to spin';
+  else if (tiltOn) el.hint.textContent = 'Tilt to carve — tap at the lip, hold to spin';
+  else el.hint.textContent = 'Drag lower half to carve — tap upper to jump';
 }
 updateHint();
 
 function steerInput() {
+  if (state !== 'ride') return 0;
   if (isTouch) {
     if (tiltOn && tiltBase !== null) {
       let d = tiltRaw - tiltBase;
@@ -1416,7 +1541,11 @@ let realT = 0, dayT = 0, timeScale = 1, slowT = 0;
 let survivalT = 0;
 let score = 0, mult = 1, distance = 0;
 let vx = 0, vy = 0, fwd = SPD_BASE;
-let grounded = true, charge = 0, flipRot = 0;
+let grounded = true, flipRot = 0, rollRot = 0, spinAxis = 0;
+let jumpPressed = false, compress = 0;
+let armedSpin = 0, armedT = 0;   // spin axis of the kicker you were last on
+const MAX_CONTINUES = 3;
+let continuesLeft = MAX_CONTINUES, runBestMult = 1;
 let boostT = 0, crashT = 0, shake = 0, hitFlash = 0, graceT = 0;
 let camLagX = 0, camLagY = 0, camLagZ = 0, camFov = 62, spdT = 0;
 let camTgtX = 0, camTgtY = 0, camTgtZ = 0;
@@ -1458,37 +1587,114 @@ function burst(n, power) {
 function doCrash() {
   if (state !== 'ride') return;
   state = 'crash';
-  crashT = 1.5;
+  crashT = 1.15;
   shake = Math.min(0.65, 0.30 + fwd * 0.006);
   hitFlash = 0.55;
   burst(isTouch ? 26 : 48, 7);
   thud(1.35);
   saveBest();
-  score = 0; mult = 1;
   el.crash.classList.add('on');
   el.mult.classList.remove('on');
 }
 
-function land(impactVy) {
-  let a = flipRot % 360;
-  if (a > 180) a -= 360;
-  else if (a < -180) a += 360;
-  const flips = Math.round(flipRot / 360);
+function showWipe() {
+  state = 'wiped';
+  el.crash.classList.remove('on');
+  el.wScore.textContent = Math.floor(score).toLocaleString('en-US');
+  el.wMeta.textContent = Math.floor(distance) + ' M  ·  BEST ×' + runBestMult;
+  if (continuesLeft > 0) {
+    el.wQ.textContent = 'Keep going?  ' + continuesLeft + ' left';
+    el.btnY.style.display = '';
+    el.btnN.textContent = 'N · End run';
+  } else {
+    el.wQ.textContent = 'No continues left';
+    el.btnY.style.display = 'none';
+    el.btnN.textContent = 'See your runs';
+  }
+  el.wipe.classList.add('on');
+}
 
-  if (Math.abs(a) > LAND_TOL) { flipRot = 0; doCrash(); return; }
+function keepGoing() {
+  if (continuesLeft <= 0) return;
+  continuesLeft--;
+  el.wipe.classList.remove('on');
+  respawn();
+  graceT = 3.0;               // you asked for three seconds of grace
+}
+
+function endRun() {
+  el.wipe.classList.remove('on');
+  saveBest();
+  const s0 = Math.floor(score);
+  if (s0 > 0) {
+    runs.push({ s: s0, d: Math.floor(distance), m: runBestMult, t: Date.now() });
+    runs.sort((a, b) => b.s - a.s);
+    runs = runs.slice(0, 5);
+    try { localStorage.setItem('adh_runs', JSON.stringify(runs)); } catch (e) { /* ignore */ }
+  }
+  renderBoard();
+  state = 'board';
+  el.hud.classList.remove('on');
+  el.board.classList.add('on');
+}
+
+function renderBoard() {
+  el.lbList.textContent = '';
+  if (!runs.length) {
+    const li = document.createElement('li');
+    li.textContent = 'No runs yet';
+    el.lbList.appendChild(li);
+    return;
+  }
+  for (let i = 0; i < runs.length; i++) {
+    const r = runs[i];
+    const li = document.createElement('li');
+    if (i === 0) li.className = 'top';
+    const rk = document.createElement('span'); rk.className = 'rk'; rk.textContent = String(i + 1);
+    const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = r.s.toLocaleString('en-US');
+    const ds = document.createElement('span'); ds.className = 'ds'; ds.textContent = r.d + ' M  ·  ×' + r.m;
+    li.appendChild(rk); li.appendChild(sc); li.appendChild(ds);
+    el.lbList.appendChild(li);
+  }
+}
+
+function newRun() {
+  el.board.classList.remove('on');
+  el.wipe.classList.remove('on');
+  continuesLeft = MAX_CONTINUES;
+  runBestMult = 1;
+  score = 0; distance = 0;
+  respawn();
+  graceT = 1.2;
+  el.hud.classList.add('on');
+}
+
+function land(impactVy) {
+  const wrap = a => { a %= 360; if (a > 180) a -= 360; else if (a < -180) a += 360; return a; };
+  const offPitch = wrap(flipRot), offRoll = wrap(rollRot);
+  const flips = Math.round(flipRot / 360), rolls = Math.round(Math.abs(rollRot) / 360);
+
+  if (Math.abs(offPitch) > LAND_TOL || Math.abs(offRoll) > ROLL_TOL) {
+    flipRot = 0; rollRot = 0; spinAxis = 0;
+    doCrash();
+    return;
+  }
 
   grounded = true;
   vy = 0;
-  flipRot = 0;
+  flipRot = 0; rollRot = 0; spinAxis = 0;
   boostT = BOOST_TIME;
   const power = clamp(Math.abs(impactVy) / 22, 0.2, 1.2);
+  compress = Math.min(1, 0.35 + power);
   shake = Math.max(shake, 0.05 + power * 0.16);
   thud(0.45 + power * 0.8);
   burst(isTouch ? 10 : 20, 3 + power * 4);
 
-  if (flips >= 1) {
-    mult = Math.min(9, mult + flips);
-    score += flips * 260 * mult;
+  const tricks = flips + rolls * 2;      // barrel rolls are worth more
+  if (tricks >= 1) {
+    mult = Math.min(9, mult + tricks);
+    runBestMult = Math.max(runBestMult, mult);
+    score += tricks * 260 * mult;
     slowT = 0.42;
     chime();
     el.mult.classList.add('on');
@@ -1498,8 +1704,8 @@ function land(impactVy) {
 function respawn() {
   state = 'ride';
   el.crash.classList.remove('on');
-  vx = 0; vy = 0; charge = 0; flipRot = 0; boostT = 0;
-  survivalT = 0; distance = 0; score = 0; mult = 1;
+  vx = 0; vy = 0; flipRot = 0; rollRot = 0; spinAxis = 0; boostT = 0; compress = 0;
+  survivalT = 0; mult = 1;
   graceT = 0.9;   // respawning inside the tree you just hit is not a death you can avoid
   bankCur = 0;
   bank.rotation.z = 0; flip.rotation.x = 0;
@@ -1567,49 +1773,54 @@ function simulate(dt) {
 
   const px = player.position.x, pz = player.position.z;
 
-  /* ---- jump charge ---- */
-  if (state === 'ride') {
-    if (grounded) {
-      if (jumpHeld) {
-        charge = Math.min(CHARGE_MAX, charge + dt);
-      } else if (charge > 0) {
-        vy = JUMP_MIN + (JUMP_MAX - JUMP_MIN) * (charge / CHARGE_MAX);
-        charge = 0;
-        grounded = false;
-        whoosh();
-        burst(isTouch ? 6 : 12, 2.5);
-      }
-    } else {
-      charge = 0;
-      if (jumpHeld) flipRot += FLIP_RATE * dt;
-    }
-  } else {
-    charge = 0;
-  }
-
   /* ---- vertical ---- */
   const gy = groundAt(px, pz);
+  // groundAt just queried (px, pz), so _rampSpin belongs to the ground underfoot.
+  // An angled kicker gets crossed diagonally and you often leave through its side
+  // a frame or two before the launch fires, so remember it briefly.
+  if (_rampSpin !== 0) { armedSpin = _rampSpin; armedT = 0.30; }
+  else if (armedT > 0) armedT -= dt;
+
   if (grounded) {
     const prevGy = groundAt(px0, pz0);
-    const surfVy = dt > 1e-5 ? (gy - prevGy) / dt : 0;
+    // Clamped: any one-frame step in ground height (a ramp edge, a rebuilt
+    // chunk) would otherwise read as a colossal upward throw.
+    const surfVy = clamp(dt > 1e-5 ? (gy - prevGy) / dt : 0, -55, SURF_VY_MAX);
     player.position.y = gy;
     vy = surfVy;
 
-    if (state === 'ride') {
+    // Alto's model: no charge. Pressing jump adds a hop to whatever upward
+    // surface velocity you already carry, so timing the lip is the whole skill.
+    if (state === 'ride' && jumpPressed) {
+      vy = Math.max(vy, 0) + JUMP_POP;
+      grounded = false;
+      spinAxis = armedT > 0 ? armedSpin : 0;
+      whoosh();
+      burst(isTouch ? 6 : 12, 2.5);
+    } else if (state === 'ride') {
       // ballistic look-ahead: if a free-fall arc would clear the slope, launch
       const LA = 0.10;
       const ax = px + vx * LA, az = pz - fwd * LA;
       const arc = gy + vy * LA + 0.5 * GRAVITY * LA * LA;
-      if (arc > groundAt(ax, az) + 0.28) grounded = false;
+      if (arc > groundAt(ax, az) + 0.28) {
+        grounded = false;
+        spinAxis = armedT > 0 ? armedSpin : 0;
+      }
     }
   } else {
     vy += GRAVITY * dt;
     player.position.y += vy * dt;
+    // Holding rotates; releasing freezes the angle where it is.
+    if (state === 'ride' && jumpHeld) {
+      if (spinAxis === 0) flipRot += FLIP_RATE * dt;
+      else rollRot += spinAxis * ROLL_RATE * dt;
+    }
     if (player.position.y <= gy) {
       player.position.y = gy;
       if (state === 'ride') land(vy); else { grounded = true; vy = 0; }
     }
   }
+  jumpPressed = false;
 
   /* ---- obstacle collision ---- */
   if (graceT > 0) graceT -= dt;
@@ -1659,12 +1870,13 @@ function poseBoard(dt) {
 
   const bankTgt = clamp(vx / STEER_MAX, -1, 1) * BANK_MAX;
   bankCur = damp(bankCur, bankTgt, BANK_RATE, dt);
-  bank.rotation.z = -bankCur;
+  bank.rotation.z = -bankCur - rollRot * Math.PI / 180;
   flip.rotation.x = -flipRot * Math.PI / 180;
 
-  const crouch = charge / CHARGE_MAX;
+  compress = Math.max(0, compress - dt * 3.2);
+  const crouch = compress + (grounded ? 0.10 : -0.16);
   body.position.y = -0.58 - crouch * 0.22;
-  body.scale.y = 1 - crouch * 0.20;
+  body.scale.y = 1 - crouch * 0.18;
 
   if (grounded) terrainNormal(player.position.x, player.position.z, _norm);
   else _norm.copy(_up);
@@ -1681,8 +1893,8 @@ function updateCamera(dt, raw) {
   // Vertical FOV means a portrait viewport shows mostly sky. Pitch down and pull
   // up as the frame gets taller so the slope keeps filling it.
   const tall = clamp((1.25 - camera.aspect) / 0.85, 0, 1);
-  const dist = 9.2 + spdT * 4.2 + (state === 'crash' ? 2.5 : 0);
-  const high = 4.0 + spdT * 1.0 + tall * 1.4;
+  const dist = 10.4 + spdT * 4.6 + (state === 'crash' ? 2.5 : 0);
+  const high = 5.6 + spdT * 1.5 + tall * 1.4;
 
   const wantX = player.position.x * 0.86;
   const wantY = player.position.y + high;
@@ -1692,7 +1904,7 @@ function updateCamera(dt, raw) {
   camLagY = damp(camLagY, wantY, 6.5, dt);
   camLagZ = damp(camLagZ, wantZ, 7.5, dt);
 
-  const minY = terrainHeight(camLagX, camLagZ) + 1.9;
+  const minY = terrainHeight(camLagX, camLagZ) + 2.6;
   const cy = Math.max(camLagY, minY);
 
   camera.position.set(
@@ -1702,8 +1914,8 @@ function updateCamera(dt, raw) {
   );
 
   camTgtX = damp(camTgtX, player.position.x * 0.55, 4.2, dt);
-  camTgtY = damp(camTgtY, player.position.y + 1.3 - tall * 4.0, 6.0, dt);
-  camTgtZ = damp(camTgtZ, player.position.z - 13, 7.0, dt);
+  camTgtY = damp(camTgtY, player.position.y + 2.6 - tall * 4.0, 6.0, dt);
+  camTgtZ = damp(camTgtZ, player.position.z - 17, 7.0, dt);
   camera.lookAt(camTgtX, camTgtY, camTgtZ);
 
   const fovWant = (62 + spdT * 10 + (slowT > 0 ? -4 : 0)) * (1 - tall * 0.12);
@@ -1909,11 +2121,12 @@ function frame(now) {
   } else {
     timeScale = damp(timeScale, 1, 5, raw);
   }
-  const dt = raw * timeScale;
+  const paused = state === 'wiped' || state === 'board';
+  const dt = paused ? 0 : raw * timeScale;
 
   if (state === 'crash') {
     crashT -= raw;
-    if (crashT <= 0) respawn();
+    if (crashT <= 0) showWipe();
   }
 
   const px0 = player.position.x, py0 = player.position.y, pz0 = player.position.z;
@@ -1959,6 +2172,95 @@ function frame(now) {
 
   renderer.render(scene, camera);
 }
+
+/* ---------------------------- shareable card ---------------------------- */
+
+// Renders the best run as a JPEG, reusing the title screen's dawn palette.
+function saveCard() {
+  const r = runs[0];
+  if (!r) return;
+  const W = 1080, H = 1350;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const c = cv.getContext('2d');
+
+  const sky = c.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0.00, '#17203f');
+  sky.addColorStop(0.36, '#3d3560');
+  sky.addColorStop(0.66, '#8d5a76');
+  sky.addColorStop(0.86, '#e7947f');
+  sky.addColorStop(1.00, '#f8c39c');
+  c.fillStyle = sky; c.fillRect(0, 0, W, H);
+
+  const sg = c.createRadialGradient(W * 0.70, H * 0.80, 0, W * 0.70, H * 0.80, H * 0.42);
+  sg.addColorStop(0, 'rgba(255,226,190,0.55)');
+  sg.addColorStop(0.3, 'rgba(255,180,150,0.18)');
+  sg.addColorStop(1, 'rgba(255,150,140,0)');
+  c.fillStyle = sg; c.fillRect(0, 0, W, H);
+
+  for (let i = 0; i < TITLE_LAYERS.length; i++) {
+    const L = TITLE_LAYERS[i];
+    const base = H * L.y, amp = H * L.h * 0.42;
+    c.beginPath();
+    c.moveTo(-8, H + 2);
+    for (let x = -8; x <= W + 8; x += 7) c.lineTo(x, base - ridgeAt(x / W, L.seed, L.fq) * amp);
+    c.lineTo(W + 8, H + 2);
+    c.closePath();
+    c.fillStyle = L.col; c.fill();
+  }
+
+  c.textAlign = 'center';
+  c.fillStyle = '#fdf3ef';
+
+  c.font = '200 46px ui-sans-serif, -apple-system, Helvetica, Arial, sans-serif';
+  c.letterSpacing = '18px';
+  c.fillText('ALL DOWN HILL', W / 2 + 9, 150);
+
+  c.letterSpacing = '10px';
+  c.font = '300 20px ui-sans-serif, -apple-system, Helvetica, Arial, sans-serif';
+  c.globalAlpha = 0.55;
+  c.fillText('BEST RUN', W / 2 + 5, 300);
+  c.globalAlpha = 1;
+
+  c.letterSpacing = '0px';
+  c.font = '200 210px ui-sans-serif, -apple-system, Helvetica, Arial, sans-serif';
+  c.fillText(r.s.toLocaleString('en-US'), W / 2, 470);
+
+  c.letterSpacing = '12px';
+  c.font = '300 26px ui-sans-serif, -apple-system, Helvetica, Arial, sans-serif';
+  c.globalAlpha = 0.78;
+  c.fillText(r.d + ' M   ·   ×' + r.m, W / 2 + 6, 545);
+
+  c.font = '300 17px ui-sans-serif, -apple-system, Helvetica, Arial, sans-serif';
+  c.globalAlpha = 0.42;
+  c.letterSpacing = '8px';
+  c.fillText(new Date(r.t).toLocaleDateString('en-US',
+    { year: 'numeric', month: 'short', day: 'numeric' }).toUpperCase(), W / 2 + 4, 600);
+
+  c.globalAlpha = 0.5;
+  c.font = '300 15px ui-sans-serif, -apple-system, Helvetica, Arial, sans-serif';
+  c.letterSpacing = '6px';
+  c.fillText(location.host + location.pathname, W / 2 + 3, H - 54);
+
+  const a = document.createElement('a');
+  a.href = cv.toDataURL('image/jpeg', 0.92);
+  a.download = 'all-down-hill-' + r.s + '.jpg';
+  a.click();
+}
+
+el.btnY.addEventListener('click', keepGoing);
+el.btnN.addEventListener('click', endRun);
+el.btnAgain.addEventListener('click', newRun);
+el.btnCard.addEventListener('click', saveCard);
+
+window.addEventListener('keydown', e => {
+  if (state === 'wiped') {
+    if (e.code === 'KeyY' || e.code === 'Enter' || e.code === 'Space') { e.preventDefault(); keepGoing(); }
+    else if (e.code === 'KeyN' || e.code === 'Escape') { e.preventDefault(); endRun(); }
+  } else if (state === 'board') {
+    if (e.code === 'Enter' || e.code === 'Space' || e.code === 'KeyY') { e.preventDefault(); newRun(); }
+  }
+}, { passive: false });
 
 /* ------------------------------- resize --------------------------------- */
 
