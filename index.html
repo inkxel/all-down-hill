@@ -147,11 +147,8 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.m
 
 /* ------------------------------- utility ------------------------------- */
 
-const clamp = (v, a, b) => v < a ? a : (v > b ? b : v);
-const lerp  = (a, b, t) => a + (b - a) * t;
-const smoothstep = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
-// Frame-rate independent exponential approach.
-const approach = (cur, tgt, rate, dt) => cur + (tgt - cur) * (1 - Math.exp(-rate * dt));
+// damp is the frame-rate independent exponential approach.
+const { clamp, lerp, smoothstep, damp } = THREE.MathUtils;
 
 function mulberry32(a) {
   return function () {
@@ -575,7 +572,6 @@ function rampRise(x, z) {
 
 const groundAt = (x, z) => terrainHeight(x, z) + rampRise(x, z);
 
-const _nrm = new THREE.Vector3();
 function terrainNormal(x, z, out) {
   const e = 0.7;
   out.set(
@@ -891,11 +887,10 @@ body.position.y = -0.58;
 player.add(bank); bank.add(flip); flip.add(body);
 scene.add(player);
 
-function box(w, h, d, hex, x, y, z, rx, rz) {
+function box(w, h, d, hex, x, y, z, rz) {
   const g = new THREE.BoxGeometry(w, h, d);
   const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: hex, flatShading: true }));
   m.position.set(x, y, z);
-  if (rx) m.rotation.x = rx;
   if (rz) m.rotation.z = rz;
   body.add(m);
   return m;
@@ -913,8 +908,8 @@ box(0.30, 0.62, 0.34, 0x2b3547, 0.15, 0.44, -0.40);
 box(0.66, 0.82, 0.52, 0xff7a45, 0, 1.10, 0);
 box(0.68, 0.20, 0.54, 0x1d2431, 0, 1.42, 0);
 // arms
-box(0.20, 0.60, 0.20, 0xe4653a, -0.47, 1.12, 0.22, 0, 0.42);
-box(0.20, 0.60, 0.20, 0xe4653a, 0.47, 1.12, -0.22, 0, -0.42);
+box(0.20, 0.60, 0.20, 0xe4653a, -0.47, 1.12, 0.22, 0.42);
+box(0.20, 0.60, 0.20, 0xe4653a, 0.47, 1.12, -0.22, -0.42);
 // head
 const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.25, 0), new THREE.MeshLambertMaterial({ color: 0x161b26, flatShading: true }));
 head.position.y = 1.72; body.add(head);
@@ -1161,7 +1156,7 @@ function chime() {
 
 let steerL = false, steerR = false, jumpHeld = false;
 let touchSteer = false, tiltOn = false, gotTilt = false;
-let tiltRaw = 0, tiltBase = null, tiltInput = 0, needBaseline = false;
+let tiltRaw = 0, tiltBase = null, needBaseline = false;
 let touchSteerInput = 0;
 const activeTouches = new Map();
 
@@ -1388,7 +1383,7 @@ const WEATHER = [
   { name: 'windy', snow: 0.55, fog: 0.74, wind: 5.6, size: 0.24 }
 ];
 let wNext = 0, wTimer = 26;
-let wSnow = 0, wFog = 1, wWind = 0, wSize = 0.26;
+let wSnow = 0, wFog = 1, wWind = 0, wSize = 0.26, wsVisible = 0;
 
 function updateWeather(dt) {
   wTimer -= dt;
@@ -1399,16 +1394,16 @@ function updateWeather(dt) {
     wTimer = 22 + Math.random() * 20;
   }
   const T = WEATHER[wNext];
-  wSnow = approach(wSnow, T.snow, 0.30, dt);
-  wFog  = approach(wFog,  T.fog,  0.30, dt);
-  wWind = approach(wWind, T.wind, 0.30, dt);
-  wSize = approach(wSize, T.size, 0.30, dt);
+  wSnow = damp(wSnow, T.snow, 0.30, dt);
+  wFog  = damp(wFog,  T.fog,  0.30, dt);
+  wWind = damp(wWind, T.wind, 0.30, dt);
+  wSize = damp(wSize, T.size, 0.30, dt);
 
   wsMat.opacity = clamp(wSnow * 0.92, 0, 1);
   wsMat.size = wSize;
-  const visible = Math.floor(WSNOW_N * clamp(wSnow * 1.15, 0, 1));
-  wsGeo.setDrawRange(0, visible);
-  wsnow.visible = visible > 0;
+  wsVisible = Math.floor(WSNOW_N * clamp(wSnow * 1.15, 0, 1));
+  wsGeo.setDrawRange(0, wsVisible);
+  wsnow.visible = wsVisible > 0;
 }
 
 /* ====================================================================== */
@@ -1423,7 +1418,7 @@ let score = 0, mult = 1, distance = 0;
 let vx = 0, vy = 0, fwd = SPD_BASE;
 let grounded = true, charge = 0, flipRot = 0;
 let boostT = 0, crashT = 0, shake = 0, hitFlash = 0, graceT = 0;
-let camLagX = 0, camLagY = 0, camLagZ = 0, camFov = 62;
+let camLagX = 0, camLagY = 0, camLagZ = 0, camFov = 62, spdT = 0;
 let camTgtX = 0, camTgtY = 0, camTgtZ = 0;
 let bankCur = 0;
 let hudAcc = 0, lastScoreTxt = '', lastDistTxt = '', lastMultTxt = '';
@@ -1545,7 +1540,7 @@ function simulate(dt) {
   // gentle gradient influence so steeps read faster than flats
   const gradZ = (terrainHeight(px0, pz0 - 6) - terrainHeight(px0, pz0 + 6)) / 12;
   target *= clamp(1 + (-gradZ - SLOPE) * 0.55, 0.85, 1.16);
-  fwd = approach(fwd, target, state === 'crash' ? 2.4 : 1.6, dt);
+  fwd = damp(fwd, target, state === 'crash' ? 2.4 : 1.6, dt);
 
   /* ---- lateral ---- */
   let inp = state === 'ride' ? steerInput() : (state === 'title' ? Math.sin(realT * 0.34) * 0.75 : 0);
@@ -1663,7 +1658,7 @@ function poseBoard(dt) {
   }
 
   const bankTgt = clamp(vx / STEER_MAX, -1, 1) * BANK_MAX;
-  bankCur = approach(bankCur, bankTgt, BANK_RATE, dt);
+  bankCur = damp(bankCur, bankTgt, BANK_RATE, dt);
   bank.rotation.z = -bankCur;
   flip.rotation.x = -flipRot * Math.PI / 180;
 
@@ -1683,7 +1678,6 @@ function poseBoard(dt) {
 /* -------------------------------- camera -------------------------------- */
 
 function updateCamera(dt, raw) {
-  const spdT = clamp((fwd - SPD_BASE) / (SPD_MAX - SPD_BASE), 0, 1);
   // Vertical FOV means a portrait viewport shows mostly sky. Pitch down and pull
   // up as the frame gets taller so the slope keeps filling it.
   const tall = clamp((1.25 - camera.aspect) / 0.85, 0, 1);
@@ -1694,9 +1688,9 @@ function updateCamera(dt, raw) {
   const wantY = player.position.y + high;
   const wantZ = player.position.z + dist;
 
-  camLagX = approach(camLagX, wantX, 3.4, dt);
-  camLagY = approach(camLagY, wantY, 6.5, dt);
-  camLagZ = approach(camLagZ, wantZ, 7.5, dt);
+  camLagX = damp(camLagX, wantX, 3.4, dt);
+  camLagY = damp(camLagY, wantY, 6.5, dt);
+  camLagZ = damp(camLagZ, wantZ, 7.5, dt);
 
   const minY = terrainHeight(camLagX, camLagZ) + 1.9;
   const cy = Math.max(camLagY, minY);
@@ -1707,13 +1701,13 @@ function updateCamera(dt, raw) {
     camLagZ + Math.sin(realT * 39.1 + 3.1) * shake * 0.5
   );
 
-  camTgtX = approach(camTgtX, player.position.x * 0.55, 4.2, dt);
-  camTgtY = approach(camTgtY, player.position.y + 1.3 - tall * 4.0, 6.0, dt);
-  camTgtZ = approach(camTgtZ, player.position.z - 13, 7.0, dt);
+  camTgtX = damp(camTgtX, player.position.x * 0.55, 4.2, dt);
+  camTgtY = damp(camTgtY, player.position.y + 1.3 - tall * 4.0, 6.0, dt);
+  camTgtZ = damp(camTgtZ, player.position.z - 13, 7.0, dt);
   camera.lookAt(camTgtX, camTgtY, camTgtZ);
 
   const fovWant = (62 + spdT * 10 + (slowT > 0 ? -4 : 0)) * (1 - tall * 0.12);
-  camFov = approach(camFov, fovWant, 3.0, raw);
+  camFov = damp(camFov, fovWant, 3.0, raw);
   if (Math.abs(camera.fov - camFov) > 0.01) {
     camera.fov = camFov;
     camera.updateProjectionMatrix();
@@ -1725,17 +1719,18 @@ function updateCamera(dt, raw) {
 
 /* -------------------------------- trail --------------------------------- */
 
+// Trail and spray vertices are stored relative to an origin object: after
+// 30k units of descent, absolute world coords lose float32 precision.
+function rebase(obj, origin, arr, count) {
+  if (Math.abs(player.position.z - origin.z) < 300 && Math.abs(player.position.y - origin.y) < 300) return;
+  const dx = player.position.x - origin.x, dy = player.position.y - origin.y, dz = player.position.z - origin.z;
+  for (let i = 0; i < count; i++) { arr[i * 3] -= dx; arr[i * 3 + 1] -= dy; arr[i * 3 + 2] -= dz; }
+  origin.copy(player.position);
+  obj.position.copy(origin);
+}
+
 function updateTrail(dt) {
-  if (Math.abs(player.position.z - trailOrigin.z) > 300 || Math.abs(player.position.y - trailOrigin.y) > 300) {
-    const dx = player.position.x - trailOrigin.x;
-    const dy = player.position.y - trailOrigin.y;
-    const dz = player.position.z - trailOrigin.z;
-    for (let i = 0; i < TRAIL_N * 2; i++) {
-      trailPos[i * 3] -= dx; trailPos[i * 3 + 1] -= dy; trailPos[i * 3 + 2] -= dz;
-    }
-    trailOrigin.copy(player.position);
-    trail.position.copy(trailOrigin);
-  }
+  rebase(trail, trailOrigin, trailPos, TRAIL_N * 2);
 
   const decay = Math.exp(-dt / 2.4);
   for (let i = 0; i < TRAIL_N * 2; i++) trailA[i] *= decay;
@@ -1771,16 +1766,7 @@ function updateTrail(dt) {
 /* ------------------------------- particles ------------------------------ */
 
 function updateSpray(dt) {
-  if (Math.abs(player.position.z - sprayOrigin.z) > 300 || Math.abs(player.position.y - sprayOrigin.y) > 300) {
-    const dx = player.position.x - sprayOrigin.x;
-    const dy = player.position.y - sprayOrigin.y;
-    const dz = player.position.z - sprayOrigin.z;
-    for (let i = 0; i < SPRAY_N; i++) {
-      sprayPos[i * 3] -= dx; sprayPos[i * 3 + 1] -= dy; sprayPos[i * 3 + 2] -= dz;
-    }
-    sprayOrigin.copy(player.position);
-    spray.position.copy(sprayOrigin);
-  }
+  rebase(spray, sprayOrigin, sprayPos, SPRAY_N);
 
   // emission from the edge of the board
   if (grounded && state !== 'crash') {
@@ -1829,8 +1815,7 @@ function updateWeatherSnow(dt, dx, dy, dz) {
   wsnow.position.copy(player.position);
   const drift = wWind;
   const span = WSNOW_R * 2, ySpan = WSNOW_YHI - WSNOW_YLO;
-  const n = Math.floor(WSNOW_N * clamp(wSnow * 1.15, 0, 1));
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < wsVisible; i++) {
     const i3 = i * 3;
     let x = wsPos[i3] - dx + (drift + Math.sin(realT * 1.3 + wsPhase[i]) * (0.5 + drift * 0.4)) * dt;
     let y = wsPos[i3 + 1] - dy - wsFall[i] * dt;
@@ -1844,8 +1829,7 @@ function updateWeatherSnow(dt, dx, dy, dz) {
 }
 
 function updateSpeedLines(dt) {
-  const spdT = clamp((fwd - SPD_BASE) / (SPD_MAX - SPD_BASE), 0, 1);
-  const op = smoothstep(0.48, 1.0, spdT) * 0.30;
+  const op = smoothstep(spdT, 0.48, 1.0) * 0.30;
   slMat.opacity = op;
   speedLines.visible = op > 0.004;
   if (!speedLines.visible) return;
@@ -1867,7 +1851,6 @@ function updateSpeedLines(dt) {
 
 function updateAudio(dt) {
   if (!actx || actx.state !== 'running') return;
-  const spdT = clamp((fwd - SPD_BASE) / (SPD_MAX - SPD_BASE), 0, 1);
   const air = grounded ? 0 : 0.35;
   const wg = (0.05 + spdT * 0.24 + air * 0.12) * (state === 'title' ? 0.45 : 1);
   windGain.gain.value = lerp(windGain.gain.value, wg, Math.min(1, dt * 5));
@@ -1922,9 +1905,9 @@ function frame(now) {
 
   if (slowT > 0) {
     slowT -= raw;
-    timeScale = approach(timeScale, 0.34, 14, raw);
+    timeScale = damp(timeScale, 0.34, 14, raw);
   } else {
-    timeScale = approach(timeScale, 1, 5, raw);
+    timeScale = damp(timeScale, 1, 5, raw);
   }
   const dt = raw * timeScale;
 
@@ -1936,6 +1919,7 @@ function frame(now) {
   const px0 = player.position.x, py0 = player.position.y, pz0 = player.position.z;
 
   simulate(dt);
+  spdT = clamp((fwd - SPD_BASE) / (SPD_MAX - SPD_BASE), 0, 1);
   poseBoard(dt);
   updateChunks(player.position.z);
   updateCamera(dt, raw);
@@ -1948,7 +1932,7 @@ function frame(now) {
 
   // fog follows sky + weather
   scene.fog.color.copy(skyBot);
-  scene.fog.far = approach(scene.fog.far, FOG_BASE * wFog, 1.2, raw);
+  scene.fog.far = damp(scene.fog.far, FOG_BASE * wFog, 1.2, raw);
   scene.fog.near = scene.fog.far * 0.10;
 
   // sky, stars, sun and mountains ride with the camera
