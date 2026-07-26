@@ -273,6 +273,7 @@ el.best.textContent = bestScore.toLocaleString('en-US');
 
 const tctx = el.titlecv.getContext('2d');
 let tW = 0, tH = 0, tDPR = 1;
+let tSkyGrad = null, tSunGrad = null;
 
 const TITLE_LAYERS = [
   { y: 0.86, h: 0.46, spd: 0.7,  fq: 1.9, col: '#f0b09b', seed: 11 },
@@ -308,27 +309,28 @@ function sizeTitle() {
   el.titlecv.width = Math.max(1, Math.round(tW * tDPR));
   el.titlecv.height = Math.max(1, Math.round(tH * tDPR));
   tctx.setTransform(tDPR, 0, 0, tDPR, 0, 0);
+
+  // gradients only change with the canvas size, so build them here not per frame
+  tSkyGrad = tctx.createLinearGradient(0, 0, 0, tH);
+  tSkyGrad.addColorStop(0.00, '#17203f');
+  tSkyGrad.addColorStop(0.36, '#3d3560');
+  tSkyGrad.addColorStop(0.66, '#8d5a76');
+  tSkyGrad.addColorStop(0.86, '#e7947f');
+  tSkyGrad.addColorStop(1.00, '#f8c39c');
+
+  const sx = tW * 0.70, sy = tH * 0.795;
+  tSunGrad = tctx.createRadialGradient(sx, sy, 0, sx, sy, tH * 0.42);
+  tSunGrad.addColorStop(0, 'rgba(255,226,190,0.60)');
+  tSunGrad.addColorStop(0.30, 'rgba(255,180,150,0.20)');
+  tSunGrad.addColorStop(1, 'rgba(255,150,140,0)');
 }
 
 function drawTitle(t, dt) {
   if (tW < 1 || tH < 1) return;
 
-  const g = tctx.createLinearGradient(0, 0, 0, tH);
-  g.addColorStop(0.00, '#17203f');
-  g.addColorStop(0.36, '#3d3560');
-  g.addColorStop(0.66, '#8d5a76');
-  g.addColorStop(0.86, '#e7947f');
-  g.addColorStop(1.00, '#f8c39c');
-  tctx.fillStyle = g;
+  tctx.fillStyle = tSkyGrad;
   tctx.fillRect(0, 0, tW, tH);
-
-  // low sun
-  const sx = tW * 0.70, sy = tH * 0.795;
-  const sg = tctx.createRadialGradient(sx, sy, 0, sx, sy, tH * 0.42);
-  sg.addColorStop(0, 'rgba(255,226,190,0.60)');
-  sg.addColorStop(0.30, 'rgba(255,180,150,0.20)');
-  sg.addColorStop(1, 'rgba(255,150,140,0)');
-  tctx.fillStyle = sg;
+  tctx.fillStyle = tSunGrad;      // low sun
   tctx.fillRect(0, 0, tW, tH);
 
   const step = Math.max(4, tW / 190);
@@ -367,9 +369,19 @@ function drawTitle(t, dt) {
 /*  RENDERER / SCENE                                                       */
 /* ====================================================================== */
 
-const renderer = new THREE.WebGLRenderer({
-  canvas: el.canvas, antialias: !isTouch, powerPreference: 'high-performance', stencil: false
-});
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({
+    canvas: el.canvas, antialias: !isTouch, powerPreference: 'high-performance', stencil: false
+  });
+} catch (err) {
+  sizeTitle();
+  drawTitle(0, 0);                 // leave the dawn scene up behind the message
+  el.prompt.textContent = 'WebGL unavailable in this browser';
+  el.prompt.style.animation = 'none';
+  el.prompt.style.opacity = '.62';
+  throw err;
+}
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 
@@ -1161,7 +1173,12 @@ function onKey(e, down) {
 }
 window.addEventListener('keydown', e => { if (!e.repeat) onKey(e, true); }, { passive: false });
 window.addEventListener('keyup', e => onKey(e, false), { passive: false });
-window.addEventListener('blur', () => { steerL = steerR = jumpHeld = false; activeTouches.clear(); touchSteerInput = 0; });
+function clearInput() {
+  steerL = steerR = jumpHeld = false;
+  activeTouches.clear();
+  touchSteerInput = 0;
+}
+window.addEventListener('blur', clearInput);
 
 /* -- touch -- */
 function touchZoneSteer(t) { return touchSteer && t.clientY > window.innerHeight * 0.42; }
@@ -1239,10 +1256,13 @@ function setupMotion() {
   const DOE = window.DeviceOrientationEvent;
   if (!DOE) { touchSteer = true; updateHint(); return; }
   if (typeof DOE.requestPermission === 'function') {
-    let settled = false;
+    // The iOS permission sheet can sit open for a while. Steer by touch in the
+    // meantime and upgrade to tilt whenever the promise actually resolves —
+    // never time out into a permanent fallback.
+    touchSteer = true;
+    updateHint();
     const done = ok => {
-      if (settled) return; settled = true;
-      if (ok) enableTilt(); else touchSteer = true;
+      if (ok) { touchSteer = false; enableTilt(); }
       updateHint();
     };
     try {
@@ -1250,7 +1270,6 @@ function setupMotion() {
         .then(r => done(r === 'granted'))
         .catch(() => done(false));
     } catch (err) { done(false); }
-    setTimeout(() => done(false), 4000);
   } else {
     enableTilt();
     setTimeout(() => {
@@ -1403,7 +1422,7 @@ let survivalT = 0;
 let score = 0, mult = 1, distance = 0;
 let vx = 0, vy = 0, fwd = SPD_BASE;
 let grounded = true, charge = 0, flipRot = 0;
-let boostT = 0, crashT = 0, shake = 0, hitFlash = 0;
+let boostT = 0, crashT = 0, shake = 0, hitFlash = 0, graceT = 0;
 let camLagX = 0, camLagY = 0, camLagZ = 0, camFov = 62;
 let camTgtX = 0, camTgtY = 0, camTgtZ = 0;
 let bankCur = 0;
@@ -1486,6 +1505,7 @@ function respawn() {
   el.crash.classList.remove('on');
   vx = 0; vy = 0; charge = 0; flipRot = 0; boostT = 0;
   survivalT = 0; distance = 0; score = 0; mult = 1;
+  graceT = 0.9;   // respawning inside the tree you just hit is not a death you can avoid
   bankCur = 0;
   bank.rotation.z = 0; flip.rotation.x = 0;
   body.position.y = -0.58; body.scale.y = 1;
@@ -1597,27 +1617,38 @@ function simulate(dt) {
   }
 
   /* ---- obstacle collision ---- */
-  if (state === 'ride') {
+  if (graceT > 0) graceT -= dt;
+  if (state === 'ride' && graceT <= 0) {
     const h = player.position.y - terrainHeight(px, pz);
     for (let i = 0; i < chunks.length; i++) {
       const c = chunks[i];
-      if (Math.abs(c.cz - pz) > CHUNK_D * 0.6 + 4) continue;
+      if (Math.abs(c.cz - pz) > CHUNK_D * 0.6 + 8) continue;
       for (let t = 0; t < c.tn; t++) {
         const s = c.ts[t];
         if (h > 5.4 * s) continue;
-        const dx = px - c.tx[t], dz = pz - c.tz[t];
         const r = 0.72 * s + 0.5;
-        if (dx * dx + dz * dz < r * r) { doCrash(); return; }
+        if (sweptDistSq(px0, pz0, px, pz, c.tx[t], c.tz[t]) < r * r) { doCrash(); return; }
       }
       for (let t = 0; t < c.rn; t++) {
         const s = c.rs[t];
         if (h > 1.05 * s) continue;
-        const dx = px - c.rx[t], dz = pz - c.rz[t];
         const r = 0.82 * s + 0.5;
-        if (dx * dx + dz * dz < r * r) { doCrash(); return; }
+        if (sweptDistSq(px0, pz0, px, pz, c.rx[t], c.rz[t]) < r * r) { doCrash(); return; }
       }
     }
   }
+}
+
+// Squared distance from an obstacle centre to this frame's travel segment.
+// A point test would tunnel: at 42 u/s with dt clamped to 50ms the rider
+// advances 2.1 units per step, wider than a tree's hit radius.
+function sweptDistSq(ax, az, bx, bz, cx, cz) {
+  const dx = bx - ax, dz = bz - az;
+  const l2 = dx * dx + dz * dz;
+  let t = l2 > 1e-9 ? ((cx - ax) * dx + (cz - az) * dz) / l2 : 0;
+  if (t < 0) t = 0; else if (t > 1) t = 1;
+  const qx = ax + dx * t - cx, qz = az + dz * t - cz;
+  return qx * qx + qz * qz;
 }
 
 /* ---------------------------- visual response --------------------------- */
@@ -1956,7 +1987,10 @@ function resize() {
   sizeTitle();
 }
 window.addEventListener('resize', resize);
-window.addEventListener('orientationchange', () => setTimeout(resize, 220));
+window.addEventListener('orientationchange', () => {
+  if (tiltOn) needBaseline = true;   // gamma/beta remap changes under the new angle
+  setTimeout(resize, 220);
+});
 resize();
 
 /* -------------------------------- start --------------------------------- */
@@ -1987,8 +2021,15 @@ window.addEventListener('touchstart', startGame, { passive: true });
 
 window.addEventListener('pagehide', saveBest);
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { saveBest(); if (actx && actx.state === 'running') actx.suspend(); }
-  else { last = performance.now(); if (actx && actx.state === 'suspended' && started) actx.resume(); }
+  if (document.hidden) {
+    saveBest();
+    clearInput();                    // a touch held across backgrounding never gets its touchend
+    if (actx && actx.state === 'running') actx.suspend();
+  } else {
+    last = performance.now();
+    if (tiltOn) needBaseline = true;
+    if (actx && actx.state === 'suspended' && started) actx.resume();
+  }
 });
 
 applyDay(0);
