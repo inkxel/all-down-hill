@@ -287,8 +287,11 @@ const BANK_RATE   = 6;
 const ALIGN_RATE  = 8;
 const FLIP_RATE   = 360;      // deg/sec, backflip
 const ROLL_RATE   = 400;      // deg/sec, barrel roll off an angled kicker
-const LAND_TOL    = 25;       // deg of pitch from upright
-const ROLL_TOL    = 40;       // deg of roll from upright — deliberately forgiving
+const LAND_TOL    = 45;       // deg of pitch from upright
+const ROLL_TOL    = 55;       // deg of roll from upright — deliberately forgiving
+const SETTLE_MIN  = 240;      // deg/sec floor when easing to the nearest whole turn
+const SETTLE_RATE = 6;        // proportional term on the same ease
+const SETTLE_MAX  = 900;      // deg/sec ceiling, so the ease reads as a tuck not a snap
 const BOOST_MUL   = 1.15;
 const BOOST_TIME  = 2.0;
 
@@ -1993,14 +1996,21 @@ function simulate(dt) {
   } else {
     vy += GRAVITY * dt;
     player.position.y += vy * dt;
-    // Holding rotates; releasing freezes the angle where it is.
+    // Holding rotates; releasing eases to the nearest whole turn.
     if (state === 'ride' && jumpHeld) {
       if (spinAxis === 0) flipRot += FLIP_RATE * dt;
       else rollRot += spinAxis * ROLL_RATE * dt;
+    } else if (state === 'ride') {
+      flipRot = settleSpin(flipRot, dt);
+      rollRot = settleSpin(rollRot, dt);
     }
     if (player.position.y <= gy) {
       player.position.y = gy;
-      if (state === 'ride') land(vy); else { grounded = true; vy = 0; }
+      // Skimming up a ramp face is not a landing — judging it as one crashed you
+      // a fraction of a second after taking off.
+      if (vy <= 0) {
+        if (state === 'ride') land(vy); else { grounded = true; vy = 0; }
+      }
     }
   }
   jumpPressed = false;
@@ -2026,6 +2036,19 @@ function simulate(dt) {
       }
     }
   }
+}
+
+// Ease a free rotation toward the nearest whole turn. Without this, letting go
+// mid-spin leaves you at an angle that is neither upright nor a completed trick,
+// which made every hold longer than ~90ms an unavoidable crash. Past a half turn
+// it carries you round to a full one; under that it straightens you up.
+function settleSpin(a, dt) {
+  const target = Math.round(a / 360) * 360;
+  const d = target - a;
+  const ad = Math.abs(d);
+  if (ad < 0.5) return target;
+  const step = clamp(ad * SETTLE_RATE, SETTLE_MIN, SETTLE_MAX) * dt;
+  return ad <= step ? target : a + Math.sign(d) * step;
 }
 
 // Squared distance from an obstacle centre to this frame's travel segment.
