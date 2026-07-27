@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#0b0f1c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="description" content="ALL DOWN HILL — a 3D endless snowboarding game. Three.js, single file, everything procedural.">
 <title>ALL DOWN HILL</title>
 <style>
@@ -19,15 +22,18 @@
   }
   body { position: fixed; inset: 0; }
 
+  :root { --app-w: 100vw; --app-h: 100dvh; }
+  .layer { position: fixed; top: 0; left: 0; width: var(--app-w); height: var(--app-h); }
+
   #game {
-    position: fixed; inset: 0; display: block; width: 100%; height: 100%;
+    display: block; width: var(--app-w); height: var(--app-h);
     opacity: 0; transition: opacity 1000ms ease;
   }
   #game.on { opacity: 1; }
 
   /* ---------- HUD ---------- */
   #hud {
-    position: fixed; inset: 0; pointer-events: none; opacity: 0;
+    pointer-events: none; opacity: 0;
     transition: opacity 900ms ease 350ms;
     padding: max(16px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) 0 max(18px, env(safe-area-inset-left));
   }
@@ -56,23 +62,24 @@
   #mult.on { opacity: .96; }
 
   #hint {
-    position: fixed; left: 0; right: 0; bottom: max(30px, calc(env(safe-area-inset-bottom) + 26px));
+    display: flex; align-items: flex-end; justify-content: center;
+    padding-bottom: max(26px, calc(env(safe-area-inset-bottom) + 22px));
     text-align: center; font-size: 10px; font-weight: 300; letter-spacing: .30em;
     text-transform: uppercase; opacity: 0; pointer-events: none;
     transition: opacity 1200ms ease; text-shadow: 0 1px 12px rgba(0,0,0,.4);
   }
   #hint.on { opacity: .46; }
   @media (max-width: 560px) {
-    #hint { letter-spacing: .16em; padding: 0 16px; }
-    #tw h1 { letter-spacing: .30em; text-indent: .30em; }
+    #hint { letter-spacing: .16em; padding-left: 16px; padding-right: 16px; }
+    #tw h1 { font-size: min(9.2vw, 52px); letter-spacing: .22em; text-indent: .22em; }
   }
 
   #flash {
-    position: fixed; inset: 0; pointer-events: none; background: #fff;
+    pointer-events: none; background: #fff;
     opacity: 0; mix-blend-mode: screen;
   }
   #crash {
-    position: fixed; inset: 0; pointer-events: none; display: grid; place-items: center;
+    pointer-events: none; display: grid; place-items: center;
     opacity: 0; transition: opacity 200ms ease;
     font-size: clamp(15px, 3vw, 22px); font-weight: 200; letter-spacing: .48em;
     text-indent: .48em; text-transform: uppercase; color: #ffd9d9;
@@ -82,7 +89,7 @@
 
   /* ---------- Wipeout / leaderboard ---------- */
   .veil {
-    position: fixed; inset: 0; display: grid; place-items: center; z-index: 5;
+    display: grid; place-items: center; z-index: 5;
     background: rgba(10,13,22,.62); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
     opacity: 0; pointer-events: none; transition: opacity 320ms ease;
   }
@@ -121,16 +128,17 @@
 
   /* ---------- Title ---------- */
   #title {
-    position: fixed; inset: 0; opacity: 1; transition: opacity 1000ms ease;
+    opacity: 1; transition: opacity 1000ms ease;
     display: grid; place-items: center;
   }
   #title.off { opacity: 0; pointer-events: none; }
   #titlecv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-  #tw { position: relative; text-align: center; padding: 0 6vw; }
+  #tw { position: relative; text-align: center; padding: 0 5vw; max-width: 100%; }
   #tw h1 {
-    margin: 0; font-size: clamp(26px, 8.2vw, 96px); font-weight: 200;
-    letter-spacing: .40em; text-indent: .40em; white-space: nowrap;
+    margin: 0; font-size: min(6.6vw, 88px); font-weight: 200;
+    letter-spacing: .28em; text-indent: .28em;
     color: #fdf3ef; text-shadow: 0 4px 46px rgba(24,12,30,.55);
+    line-height: 1.25;
   }
   #prompt {
     margin: clamp(20px, 4.5vh, 40px) 0 0; font-size: clamp(9px, 1.5vw, 11px);
@@ -148,9 +156,9 @@
 </head>
 <body>
 
-<canvas id="game"></canvas>
+<canvas id="game" class="layer"></canvas>
 
-<div id="hud">
+<div id="hud" class="layer">
   <div class="corner l">
     <div class="lbl">Score</div>
     <div class="val" id="score">0</div>
@@ -163,11 +171,11 @@
   </div>
 </div>
 
-<div id="hint"></div>
-<div id="crash">Wipeout</div>
-<div id="flash"></div>
+<div id="hint" class="layer"></div>
+<div id="crash" class="layer">Wipeout</div>
+<div id="flash" class="layer"></div>
 
-<div id="wipe" class="veil"><div class="panel">
+<div id="wipe" class="veil layer"><div class="panel">
   <p class="ptitle">Wipeout</p>
   <div class="pscore" id="wScore">0</div>
   <div class="pmeta" id="wMeta">0 M</div>
@@ -178,7 +186,7 @@
   </div>
 </div></div>
 
-<div id="board" class="veil"><div class="panel">
+<div id="board" class="veil layer"><div class="panel">
   <p class="ptitle">Best runs</p>
   <ol id="lbList"></ol>
   <div class="prow">
@@ -187,8 +195,8 @@
   </div>
 </div></div>
 
-<div id="title">
-  <canvas id="titlecv"></canvas>
+<div id="title" class="layer">
+  <canvas id="titlecv" class="layer"></canvas>
   <div id="tw">
     <h1>ALL DOWN HILL</h1>
     <p id="prompt">Press any key to start</p>
@@ -865,6 +873,14 @@ function buildChunk(c, k) {
 /* A repeating rhythm instead of uniform scatter. One cycle is 350m: thread the
    trees, breathe, play on small kickers, then commit to one full-width feature
    and land it clean. Density still creeps up with distance on top of this. */
+/* Ramp placement is switched off. Tucker pulled them 2026-07-27: they weren't
+   playing the way he wanted and looked out of step with the rest of the scene.
+   Everything that makes them work is deliberately still here and still correct —
+   rampRise() with its edge taper, the armed spin axis, barrel-roll rotation, the
+   settle assist. Put a non-zero `ramps` back in a section and they return.
+   See knowledge/decisions/2026-07-27-ramps-removed-not-deleted.md */
+const RAMPS_ENABLED = false;
+
 const SECTIONS = [
   { trees: 13, rocks: 6, ramps: 0 },                    // slalom
   { trees: 17, rocks: 8, ramps: 0 },                    // slalom, tighter
@@ -883,7 +899,7 @@ function scatterProps(c, k) {
   const load = 0.75 + diff * 0.55;
 
   // ramps first, so trees and rocks can keep clear of them
-  c.pn = Math.min(MAX_RAMP, sec.ramps);
+  c.pn = RAMPS_ENABLED ? Math.min(MAX_RAMP, sec.ramps) : 0;
   for (let i = 0; i < c.pn; i++) {
     if (sec.big) {
       c.px[i] = (rnd() * 2 - 1) * 4;
@@ -1464,7 +1480,7 @@ function chime() {
 /* ====================================================================== */
 
 let steerL = false, steerR = false, jumpHeld = false;
-let touchSteer = false, tiltOn = false, gotTilt = false;
+let touchSteer = false, tiltOn = false, gotTilt = false, sawTouch = false, motionArmed = false;
 let tiltRaw = 0, tiltBase = null, needBaseline = false;
 let touchSteerInput = 0;
 const activeTouches = new Map();
@@ -1485,51 +1501,66 @@ function clearInput() {
 window.addEventListener('blur', clearInput);
 
 /* -- touch -- */
-function touchZoneSteer(t) { return touchSteer && t.clientY > window.innerHeight * 0.42; }
+// A tap must always jump. The old build split the screen into zones, so in the
+// touch-steer fallback a natural thumb tap in the lower half steered instead of
+// jumping and the game felt dead. Now a touch is a jump until it is dragged.
+const TOUCH_DRAG = 16;          // px of movement before a touch becomes a steer
 
 function recomputeTouch() {
-  let steer = 0, jump = false, found = false;
+  let steer = 0, jump = false, steering = false;
   activeTouches.forEach(t => {
     if (t.steering) {
-      const half = window.innerWidth * 0.5;
+      const half = viewportW() * 0.5;
       steer += clamp((t.x - half) / (half * 0.62), -1, 1);
-      found = true;
+      steering = true;
     } else jump = true;
   });
-  touchSteerInput = found ? clamp(steer, -1, 1) : 0;
+  touchSteerInput = steering ? clamp(steer, -1, 1) : 0;
   if (jump && !jumpHeld) jumpPressed = true;
   jumpHeld = jump;
 }
 
 function onTouchStart(e) {
+  if (!sawTouch) { sawTouch = true; updateHint(); }   // detection was wrong; correct it live
   for (let i = 0; i < e.changedTouches.length; i++) {
     const t = e.changedTouches[i];
-    activeTouches.set(t.identifier, { x: t.clientX, y: t.clientY, steering: touchZoneSteer(t) });
+    activeTouches.set(t.identifier, { x: t.clientX, y: t.clientY, x0: t.clientX, y0: t.clientY, steering: false });
   }
   recomputeTouch();
   e.preventDefault();
 }
+
 function onTouchMove(e) {
   for (let i = 0; i < e.changedTouches.length; i++) {
     const t = e.changedTouches[i];
     const rec = activeTouches.get(t.identifier);
-    if (rec) { rec.x = t.clientX; rec.y = t.clientY; }
+    if (!rec) continue;
+    rec.x = t.clientX; rec.y = t.clientY;
+    if (touchSteer && !rec.steering) {
+      const dx = rec.x - rec.x0, dy = rec.y - rec.y0;
+      if (dx * dx + dy * dy > TOUCH_DRAG * TOUCH_DRAG) rec.steering = true;
+    }
   }
   recomputeTouch();
   e.preventDefault();
 }
+
 function onTouchEnd(e) {
   for (let i = 0; i < e.changedTouches.length; i++) activeTouches.delete(e.changedTouches[i].identifier);
   recomputeTouch();
   e.preventDefault();
 }
-if (isTouch) {
+
+// Attached unconditionally: gating these on device detection meant one wrong
+// guess left the game with no input at all.
+{
   const o = { passive: false };
   window.addEventListener('touchstart', onTouchStart, o);
   window.addEventListener('touchmove', onTouchMove, o);
   window.addEventListener('touchend', onTouchEnd, o);
   window.addEventListener('touchcancel', onTouchEnd, o);
 }
+
 // belt and braces against pull-to-refresh / double-tap zoom
 document.addEventListener('gesturestart', e => e.preventDefault(), { passive: false });
 document.addEventListener('dblclick', e => e.preventDefault(), { passive: false });
@@ -1589,26 +1620,25 @@ function setupMotion() {
 }
 
 function updateHint() {
-  if (!isTouch) el.hint.textContent = 'A / D to carve — SPACE at the lip, hold to spin';
-  else if (tiltOn) el.hint.textContent = 'Tilt to carve — tap at the lip, hold to spin';
-  else el.hint.textContent = 'Drag lower half to carve — tap upper to jump';
+  if (!isTouch && !sawTouch) el.hint.textContent = 'A / D to carve — SPACE at the lip, hold to spin';
+  else if (tiltOn) el.hint.textContent = 'Tilt to carve — tap to jump, hold to spin';
+  else el.hint.textContent = 'Drag to carve — tap to jump, hold to spin';
 }
 updateHint();
 
 function steerInput() {
   if (state !== 'ride') return 0;
-  if (isTouch) {
-    if (tiltOn && tiltBase !== null) {
-      let d = tiltRaw - tiltBase;
-      while (d > 180) d -= 360;
-      while (d < -180) d += 360;
-      const dead = 2.2;
-      const mag = Math.abs(d) <= dead ? 0 : clamp((Math.abs(d) - dead) / (25 - dead), 0, 1);
-      return Math.sign(d) * mag;
-    }
-    return touchSteerInput;
+  const kb = (steerR ? 1 : 0) - (steerL ? 1 : 0);
+  if (kb !== 0) return kb;
+  if (tiltOn && tiltBase !== null) {
+    let d = tiltRaw - tiltBase;
+    while (d > 180) d -= 360;
+    while (d < -180) d += 360;
+    const dead = 2.2;
+    const mag = Math.abs(d) <= dead ? 0 : clamp((Math.abs(d) - dead) / (25 - dead), 0, 1);
+    return Math.sign(d) * mag;
   }
-  return (steerR ? 1 : 0) - (steerL ? 1 : 0);
+  return touchSteerInput;
 }
 
 /* ====================================================================== */
@@ -2098,7 +2128,7 @@ function updateCamera(dt, raw) {
   // up as the frame gets taller so the slope keeps filling it.
   const tall = clamp((1.25 - camera.aspect) / 0.85, 0, 1);
   const dist = 10.4 + spdT * 4.6 + (state === 'crash' ? 2.5 : 0);
-  const high = 5.6 + spdT * 1.5 + tall * 1.4;
+  const high = 5.6 + spdT * 1.5 + tall * 2.2;
 
   const wantX = player.position.x * 0.86;
   const wantY = player.position.y + high;
@@ -2118,7 +2148,7 @@ function updateCamera(dt, raw) {
   );
 
   camTgtX = damp(camTgtX, player.position.x * 0.55, 4.2, dt);
-  camTgtY = damp(camTgtY, player.position.y + 2.6 - tall * 4.0, 6.0, dt);
+  camTgtY = damp(camTgtY, player.position.y + 2.6 - tall * 6.4, 6.0, dt);
   camTgtZ = damp(camTgtZ, player.position.z - 17, 7.0, dt);
   camera.lookAt(camTgtX, camTgtY, camTgtZ);
 
@@ -2468,18 +2498,39 @@ window.addEventListener('keydown', e => {
 
 /* ------------------------------- resize --------------------------------- */
 
+// iOS's layout viewport extends behind the browser chrome, so innerHeight
+// overstates what you can actually see — the bottom of the scene (and the rider)
+// ends up hidden under the nav bar. Drive everything off visualViewport.
+function viewportH() {
+  const vv = window.visualViewport;
+  return Math.max(1, Math.round(vv ? vv.height : window.innerHeight));
+}
+function viewportW() {
+  const vv = window.visualViewport;
+  return Math.max(1, Math.round(vv ? vv.width : window.innerWidth));
+}
+
 function resize() {
-  const w = window.innerWidth, h = window.innerHeight;
+  const w = viewportW(), h = viewportH();
+  const root = document.documentElement.style;
+  root.setProperty('--app-w', w + 'px');
+  root.setProperty('--app-h', h + 'px');
+
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setSize(w, h, false);
-  camera.aspect = w / Math.max(1, h);
+  camera.aspect = w / h;
   camera.updateProjectionMatrix();
   sizeTitle();
 }
 window.addEventListener('resize', resize);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', resize);
+  window.visualViewport.addEventListener('scroll', resize);   // chrome sliding in/out
+}
 window.addEventListener('orientationchange', () => {
   if (tiltOn) needBaseline = true;   // gamma/beta remap changes under the new angle
-  setTimeout(resize, 220);
+  setTimeout(resize, 120);
+  setTimeout(resize, 400);           // iOS reports stale sizes right after the flip
 });
 resize();
 
@@ -2489,7 +2540,6 @@ function startGame() {
   if (started) return;
   started = true;
 
-  if (isTouch) setupMotion();       // must run inside the activating gesture
   initAudio();
 
   state = 'ride';
@@ -2508,6 +2558,12 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('pointerdown', startGame);
 window.addEventListener('touchstart', startGame, { passive: true });
+
+// Arm tilt + audio from the first touchend — the gesture iOS actually accepts.
+window.addEventListener('touchend', () => {
+  if (!motionArmed) { motionArmed = true; setupMotion(); }
+  initAudio();
+}, { passive: true });
 
 window.addEventListener('pagehide', saveBest);
 document.addEventListener('visibilitychange', () => {

@@ -54,3 +54,7 @@ survive this fix, that theory is still unproven and worth re-opening.
 - [ ] 32% landing-crash rate under an adversarial bot (holds 450–650 ms then lands immediately, ignoring terrain). Unknown what a human rate looks like.
 
 ## Commit log
+
+### 11:14 — 2749998
+Document the landing fix: ADR, journal entry, wiki correction
+files: knowledge/decisions/2026-07-27-spin-settle-assist.md, knowledge/decisions/index.md, knowledge/journal/2026-07-27-feel-rework.md, knowledge/journal/2026-07-27-landing-fix.md, knowledge/journal/index.md, knowledge/wiki/physics.md, knowledge/wiki/roadmap.md
