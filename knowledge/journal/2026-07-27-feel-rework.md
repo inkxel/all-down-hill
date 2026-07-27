@@ -70,3 +70,9 @@ than on whether the game looked right.
 
 ## Related
 - [[research/2026-07-rider-comps]]
+
+## Commit log
+
+### 08:22 — e2959b4
+Add knowledge layer: wiki, ADRs, journal, research
+files: .gitattributes, .githooks/post-commit, .gitignore, AGENTS.md, CLAUDE.md, README.md, knowledge/AGENTS.md, knowledge/CLAUDE.md, knowledge/decisions/2026-07-26-analytic-terrain-height.md, knowledge/decisions/2026-07-26-fixed-slot-instancing.md, knowledge/decisions/2026-07-26-float32-rebasing.md, knowledge/decisions/2026-07-26-light-intensity-pi-scale.md, +20 more
