@@ -12,6 +12,7 @@ date: 2026-07-27
 | [[atmosphere]] — atmosphere | Sky, day/night cycle, weather states, fog and the horizon parallax — how the scene's mood is driven from two numbers. |
 | [[deploy]] — deploy | How the game ships — static GitHub Pages from main branch root, no build step, and what that constrains. |
 | [[index-map]] — index-map | Structural map of index.html — what lives at which section, since the whole program is one file and the tree-sitter codemap cannot parse it. |
+| [[mobile]] — mobile | How touch, tilt and the viewport work on phones — and the traps that made mobile completely non-functional once. |
 | [[physics]] — physics | How the rider moves — surface following, the launch test, the Alto's-style jump, trick judging, and the two bugs that shaped all of it. |
 | [[rider]] — rider | The rigged snowboarder — procedural geometry, a two-bone IK leg solve, and animation driven entirely from game state. |
 | [[roadmap]] — Roadmap | — |

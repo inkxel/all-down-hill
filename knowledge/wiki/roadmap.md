@@ -15,9 +15,11 @@ The "not now, but don't forget" pile.
 ## Known-soft
 - **Section rhythm is fixed-period (350 m).** A long session will feel the loop. Density ramping masks it; it doesn't solve it.
 - ~~**Barrel roll is hard to land.**~~ **Resolved 2026-07-27** — was systemic, not roll-specific: any hold past ~90 ms crashed on either axis. Fixed with a settle-to-nearest-turn assist. [[decisions/2026-07-27-spin-settle-assist]]
-- **Small kickers at ±14 units are still easy to miss** riding a straight line. The full-width feature is the only guaranteed hit.
+- ~~Small kickers easy to miss~~ — moot while ramps are disabled.
 
 ## Deferred features
+- **Ramps are switched off**, machinery intact behind `RAMPS_ENABLED`. Tucker wants to redesign them before they return. Until then **barrel rolls are unreachable** — `spinAxis` is only set by an angled kicker.
+- **Verify mobile under Playwright WebKit.** The 2026-07-27 fixes were verified against Chromium iPhone emulation plus scripted iOS permission semantics; WebKit was still downloading.
 - **Rider treatments 2–5** are specified and rendered but unbuilt. Halo needs its vertex-colour rim bake restored; the rim is baked against a fixed light direction so it won't follow the day cycle without a shader.
 - **Leaderboard is `localStorage` only.** No accounts, no server, no sharing beyond the JPEG card.
 - **No pause.** Deliberate per the original spec, but the continue panel now proves a pause surface would fit.

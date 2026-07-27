@@ -58,3 +58,7 @@ survive this fix, that theory is still unproven and worth re-opening.
 ### 11:14 — 2749998
 Document the landing fix: ADR, journal entry, wiki correction
 files: knowledge/decisions/2026-07-27-spin-settle-assist.md, knowledge/decisions/index.md, knowledge/journal/2026-07-27-feel-rework.md, knowledge/journal/2026-07-27-landing-fix.md, knowledge/journal/index.md, knowledge/wiki/physics.md, knowledge/wiki/roadmap.md
+
+### 15:26 — f8a8d13
+Fix mobile input and viewport; disable ramp placement
+files: index.html, knowledge/journal/2026-07-27-landing-fix.md
