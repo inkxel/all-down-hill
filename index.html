@@ -1005,38 +1005,221 @@ const player = new THREE.Object3D();
 const bank = new THREE.Object3D();
 const flip = new THREE.Object3D();
 const body = new THREE.Object3D();
-flip.position.y = 0.58;
-body.position.y = -0.58;
+flip.position.y = 0.82;          // spin around the rider's mass, not the board
+body.position.y = -0.82;
 player.add(bank); bank.add(flip); flip.add(body);
 scene.add(player);
 
-function box(w, h, d, hex, x, y, z, rz) {
-  const g = new THREE.BoxGeometry(w, h, d);
-  const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: hex, flatShading: true }));
-  m.position.set(x, y, z);
-  if (rz) m.rotation.z = rz;
-  body.add(m);
-  return m;
+/* -------------------------- rider: geometry ---------------------------- */
+
+const RIDER_SCALE = 1.15;        // slightly heroic, so it reads at chase distance
+const BOARD_L = 1.74, BOARD_W = 0.46, STANCE = 0.33, ANKLE = 0.24;
+const THIGH = 0.42, SHIN = 0.40, UPPER = 0.29, FORE = 0.27;
+
+function boardGeo() {
+  const hl = BOARD_L / 2, hw = BOARD_W / 2;
+  const sh = new THREE.Shape();
+  sh.moveTo(0, hl);
+  sh.bezierCurveTo(hw * 0.80, hl * 0.90, hw, hl * 0.42, hw, 0);
+  sh.bezierCurveTo(hw, -hl * 0.42, hw * 0.80, -hl * 0.90, 0, -hl);
+  sh.bezierCurveTo(-hw * 0.80, -hl * 0.90, -hw, -hl * 0.42, -hw, 0);
+  sh.bezierCurveTo(-hw, hl * 0.42, -hw * 0.80, hl * 0.90, 0, hl);
+  const g = new THREE.ExtrudeGeometry(sh, {
+    depth: 0.055, bevelEnabled: true, bevelSize: 0.018, bevelThickness: 0.014,
+    bevelSegments: 1, curveSegments: 7
+  });
+  g.rotateX(-Math.PI / 2);
+  g.center();
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    p.setY(i, p.getY(i) + Math.pow(Math.abs(p.getZ(i)) / hl, 2.8) * 0.13);   // rocker
+  }
+  g.computeVertexNormals();
+  return g;
 }
 
-// board
-box(1.02, 0.09, 3.35, 0x1d2431, 0, 0.06, 0);
-box(0.86, 0.05, 2.2, 0xff7a45, 0, 0.115, 0);
-box(0.30, 0.10, 0.30, 0x11161f, -0.14, 0.15, 0.42);
-box(0.30, 0.10, 0.30, 0x11161f, 0.14, 0.15, -0.42);
-// legs
-box(0.30, 0.62, 0.34, 0x2b3547, -0.15, 0.44, 0.40);
-box(0.30, 0.62, 0.34, 0x2b3547, 0.15, 0.44, -0.40);
-// torso
-box(0.66, 0.82, 0.52, 0xff7a45, 0, 1.10, 0);
-box(0.68, 0.20, 0.54, 0x1d2431, 0, 1.42, 0);
-// arms
-box(0.20, 0.60, 0.20, 0xe4653a, -0.47, 1.12, 0.22, 0.42);
-box(0.20, 0.60, 0.20, 0xe4653a, 0.47, 1.12, -0.22, -0.42);
-// head
-const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.25, 0), new THREE.MeshLambertMaterial({ color: 0x161b26, flatShading: true }));
-head.position.y = 1.72; body.add(head);
-box(0.34, 0.12, 0.24, 0x7fd8e8, 0, 1.73, 0.16);
+// Capsule hanging from its own origin, so joints chain without extra offsets.
+function boneGeo(r, len) {
+  const g = new THREE.CapsuleGeometry(r, len, 2, 7);
+  g.translate(0, -len / 2, 0);
+  return g;
+}
+
+// Swept, twisting ribbon: a flat plane would vanish edge-on from the chase cam.
+function scarfGeo(len, n) {
+  const path = t => new THREE.Vector3(Math.sin(t * 4.1) * 0.19 * t,
+                                      0.02 + Math.sin(t * 3.2) * 0.11 - t * t * 0.46,
+                                      t * len);
+  const pos = [], idx = [];
+  const d = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+  const right = new THREE.Vector3(), nup = new THREE.Vector3();
+  const ax = new THREE.Vector3(), ay = new THREE.Vector3();
+  const CORNERS = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    const c = path(t);
+    d.copy(path(Math.min(1, t + 0.03))).sub(path(Math.max(0, t - 0.03))).normalize();
+    right.crossVectors(d, up).normalize();
+    nup.crossVectors(right, d).normalize();
+    const tw = t * 3.4, ct = Math.cos(tw), st = Math.sin(tw);
+    const w = lerp(0.055, 0.020, t), h = lerp(0.028, 0.010, t);
+    ax.copy(right).multiplyScalar(ct).addScaledVector(nup, st);
+    ay.copy(right).multiplyScalar(-st).addScaledVector(nup, ct);
+    for (let k = 0; k < 4; k++) {
+      const sx = CORNERS[k][0], sy = CORNERS[k][1];
+      pos.push(c.x + ax.x * w * sx + ay.x * h * sy,
+               c.y + ax.y * w * sx + ay.y * h * sy,
+               c.z + ax.z * w * sx + ay.z * h * sy);
+    }
+    if (i < n) {
+      const a = i * 4, b = (i + 1) * 4;
+      for (let k = 0; k < 4; k++) {
+        const k2 = (k + 1) % 4;
+        idx.push(a + k, b + k, b + k2, a + k, b + k2, a + k2);
+      }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+const RG = {
+  board:  boardGeo(),
+  thigh:  boneGeo(0.112, THIGH), shin: boneGeo(0.092, SHIN),
+  upper:  boneGeo(0.076, UPPER), fore: boneGeo(0.066, FORE),
+  pelvis: new THREE.CapsuleGeometry(0.145, 0.16, 2, 7),
+  chest:  new THREE.CapsuleGeometry(0.175, 0.30, 2, 8),
+  head:   new THREE.SphereGeometry(0.130, 9, 7),
+  helm:   new THREE.SphereGeometry(0.148, 9, 7),
+  gogg:   new THREE.BoxGeometry(0.245, 0.080, 0.09),
+  glove:  new THREE.SphereGeometry(0.074, 7, 5),
+  boot:   new THREE.BoxGeometry(0.155, 0.20, 0.27),
+  bind:   new THREE.BoxGeometry(0.185, 0.05, 0.29),
+  collar: new THREE.TorusGeometry(0.115, 0.045, 5, 10),
+  scarf:  scarfGeo(0.86, 16)
+};
+
+/* ---------------------------- rider: rig ------------------------------- */
+
+const _ikA = new THREE.Vector3(), _ikB = new THREE.Vector3();
+const _ikX = new THREE.Vector3(), _ikY = new THREE.Vector3(), _ikZ = new THREE.Vector3();
+const _ikM = new THREE.Matrix4();
+const _bend = new THREE.Vector3(1, 0.15, 0).normalize();
+
+// Two-bone IK: aims hip->ankle and bends the knee toward the toe edge.
+function ik2(hip, knee, tx, ty, tz, l1, l2) {
+  _ikA.set(tx, ty, tz);
+  const d = clamp(_ikA.length(), 1e-4, (l1 + l2) * 0.998);
+  _ikA.normalize();
+  const A = Math.acos(clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1, 1));
+  const B = Math.acos(clamp((l1 * l1 + l2 * l2 - d * d) / (2 * l1 * l2), -1, 1));
+  _ikB.copy(_bend).addScaledVector(_ikA, -_bend.dot(_ikA));
+  if (_ikB.lengthSq() < 1e-6) _ikB.set(0, 0, 1).addScaledVector(_ikA, -_ikA.z);
+  _ikB.normalize();
+  _ikY.copy(_ikA).multiplyScalar(Math.cos(A)).addScaledVector(_ikB, Math.sin(A)).negate();
+  _ikZ.copy(_ikA).cross(_ikB).normalize();
+  _ikX.copy(_ikY).cross(_ikZ);
+  _ikM.makeBasis(_ikX, _ikY, _ikZ);
+  hip.quaternion.setFromRotationMatrix(_ikM);
+  knee.rotation.set(0, 0, -(Math.PI - B));
+}
+
+const rig = {};
+{
+  const SK = { board: 0x15171f, body: 0x1e222e, leg: 0x14171f,
+               helm: 0x262c3a, gogg: 0x5a6780, accent: 0xff5a3c };
+  const M = h => new THREE.MeshLambertMaterial({ color: h, flatShading: true });
+  const mBoard = M(SK.board), mBody = M(SK.body), mLeg = M(SK.leg),
+        mHelm = M(SK.helm), mGogg = M(SK.gogg);
+  const mAcc = new THREE.MeshLambertMaterial({ color: SK.accent, flatShading: true, side: THREE.DoubleSide });
+  const O = (x, y, z) => { const o = new THREE.Object3D(); o.position.set(x, y, z); return o; };
+  const put = (parent, g, mat, x, y, z) => {
+    const m = new THREE.Mesh(g, mat);
+    if (x !== undefined) m.position.set(x, y, z);
+    parent.add(m); return m;
+  };
+
+  const root = new THREE.Object3D();
+  root.scale.setScalar(RIDER_SCALE);
+  body.add(root);
+
+  put(root, RG.board, mBoard);
+  put(root, RG.bind, mLeg, 0, 0.055, -STANCE);
+  put(root, RG.bind, mLeg, 0, 0.055, STANCE);
+  put(root, RG.boot, mLeg, 0, 0.155, -STANCE).rotation.y = 0.12;
+  put(root, RG.boot, mLeg, 0, 0.155, STANCE).rotation.y = -0.12;
+
+  rig.pelvis = O(0, 0.78, 0.03);
+  root.add(rig.pelvis);
+  put(rig.pelvis, RG.pelvis, mBody).rotation.x = Math.PI / 2;
+
+  rig.hipF = O(0, -0.02, -0.12); rig.hipR = O(0, -0.02, 0.12);
+  rig.pelvis.add(rig.hipF, rig.hipR);
+  rig.kneeF = O(0, -THIGH, 0); rig.kneeR = O(0, -THIGH, 0);
+  rig.hipF.add(rig.kneeF); rig.hipR.add(rig.kneeR);
+  put(rig.hipF, RG.thigh, mLeg); put(rig.kneeF, RG.shin, mLeg);
+  put(rig.hipR, RG.thigh, mLeg); put(rig.kneeR, RG.shin, mLeg);
+
+  rig.spine = O(0, 0.12, 0);
+  rig.pelvis.add(rig.spine);
+  rig.chest = O(0, 0.32, 0);
+  rig.spine.add(rig.chest);
+  put(rig.chest, RG.chest, mBody).rotation.x = Math.PI / 2;
+  put(rig.chest, RG.collar, mAcc, 0, 0.24, 0).rotation.x = Math.PI / 2;
+
+  rig.shF = O(0, 0.12, -0.185); rig.shR = O(0, 0.12, 0.185);
+  rig.chest.add(rig.shF, rig.shR);
+  rig.elF = O(0, -UPPER, 0); rig.elR = O(0, -UPPER, 0);
+  rig.shF.add(rig.elF); rig.shR.add(rig.elR);
+  put(rig.shF, RG.upper, mBody); put(rig.elF, RG.fore, mBody);
+  put(rig.shR, RG.upper, mBody); put(rig.elR, RG.fore, mBody);
+  put(rig.elF, RG.glove, mAcc, 0, -FORE, 0);
+  put(rig.elR, RG.glove, mAcc, 0, -FORE, 0);
+
+  rig.neck = O(0, 0.30, 0);
+  rig.chest.add(rig.neck);
+  put(rig.neck, RG.head, mBody, 0, 0.09, 0);
+  put(rig.neck, RG.helm, mHelm, 0, 0.115, -0.008).scale.set(1.0, 0.90, 1.02);
+  put(rig.neck, RG.gogg, mGogg, 0, 0.105, 0.108).rotation.x = 0.14;
+
+  // The scarf hangs off the root so torso twist cannot swing it sideways.
+  rig.scarf = put(root, RG.scarf, mAcc, 0.02, 1.38, 0.06);
+}
+
+/* -------------------------- rider: animation --------------------------- */
+
+let rCrouch = 0.78, rTwist = 0, rLean = 0, rScarf = 0;
+
+function poseRider(dt, turn, air, compressAmt) {
+  // deeper on landing compression, taller and tucked in the air
+  const crouchT = 0.78 - compressAmt * 0.20 + (air ? 0.06 : 0) - Math.abs(turn) * 0.05;
+  rCrouch = damp(rCrouch, crouchT, 9, dt);
+  rTwist = damp(rTwist, 0.34 - turn * 0.42, 7, dt);
+  rLean = damp(rLean, 0.05 + turn * 0.22, 7, dt);
+  rScarf = damp(rScarf, turn, 5, dt);
+
+  rig.pelvis.position.y = rCrouch;
+  rig.pelvis.rotation.set(0, rTwist * 0.45, rLean * 0.5);
+  rig.spine.rotation.set(-0.18, rTwist, -rLean);
+
+  // ankles stay locked to the bindings whatever the crouch does
+  const dy = ANKLE - rCrouch + 0.02;
+  ik2(rig.hipF, rig.kneeF, -0.02, dy, -STANCE - 0.03 + 0.12, THIGH, SHIN);
+  ik2(rig.hipR, rig.kneeR, -0.02, dy,  STANCE - 0.03 - 0.12, THIGH, SHIN);
+
+  const swing = turn * 0.55, tuck = air ? 0.55 : 0;
+  rig.shF.rotation.set(-0.30 + swing - tuck, 0.10, -0.62 + tuck * 0.5);
+  rig.shR.rotation.set(0.55 - swing - tuck * 0.6, -0.10, 0.70 - tuck * 0.4);
+  rig.elF.rotation.set(-0.45 - tuck * 0.7, 0, -0.20);
+  rig.elR.rotation.set(-0.55 - tuck * 0.7, 0, 0.20);
+
+  rig.neck.rotation.set(0.06, -rTwist - 0.42, 0);
+  rig.scarf.position.y = rCrouch + 0.60;
+  rig.scarf.rotation.set(0.22 - rScarf * 0.18, 0.66 - rScarf * 0.55, 0.14 + rScarf * 0.30);
+}
 
 /* ----------------------------- carve trail ------------------------------ */
 
@@ -1863,8 +2046,8 @@ function poseBoard(dt) {
   if (state === 'crash') {
     flip.rotation.x += 7.2 * dt;
     bank.rotation.z += 4.4 * dt;
-    body.position.y = -0.58;
-    body.scale.y = 1;
+    compress = Math.min(1, compress + dt * 2.5);
+    poseRider(dt, 0, false, compress);
     return;
   }
 
@@ -1874,9 +2057,7 @@ function poseBoard(dt) {
   flip.rotation.x = -flipRot * Math.PI / 180;
 
   compress = Math.max(0, compress - dt * 3.2);
-  const crouch = compress + (grounded ? 0.10 : -0.16);
-  body.position.y = -0.58 - crouch * 0.22;
-  body.scale.y = 1 - crouch * 0.18;
+  poseRider(dt, clamp(vx / STEER_MAX, -1, 1), !grounded, compress);
 
   if (grounded) terrainNormal(player.position.x, player.position.z, _norm);
   else _norm.copy(_up);
@@ -1956,7 +2137,7 @@ function updateTrail(dt) {
   }
 
   _right.set(1, 0, 0).applyQuaternion(player.quaternion);
-  const w = 0.34 + Math.abs(vx) * 0.020;
+  const w = 0.24 + Math.abs(vx) * 0.015;
   const px = player.position.x, pz = player.position.z;
   const lx = px - _right.x * w, lz = pz - _right.z * w;
   const rx = px + _right.x * w, rz = pz + _right.z * w;
