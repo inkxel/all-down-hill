@@ -57,16 +57,32 @@ Worth noting the pattern: a large block replacement silently dropped a few lines
 at the boundary. Asserting on behaviour rather than eyeballing the diff is what
 found it.
 
-## What I could not verify
-Playwright's WebKit was still downloading, so these fixes were verified against
-**Chromium with iPhone emulation** plus a scripted emulation of iOS's
-`requestPermission` activation semantics — not against real WebKit. The logic is
-verified; the engine is not. If something still misbehaves on his phone, that gap
-is the first place to look.
+## What I could not verify — and gave up on
+These fixes are verified against **Chromium with iPhone emulation** plus a
+scripted emulation of iOS's `requestPermission` activation semantics. **Not**
+against real WebKit.
+
+I tried three times to install Playwright's WebKit to close that gap. It
+downloads to 100% and then never extracts — the first attempt hit the 10-minute
+tool timeout while holding `~/Library/Caches/ms-playwright/__dirlock`, which made
+the next two fail on the stale lock and then stall identically after a clean
+reset. Abandoned rather than burn more time; the partial install and lock were
+removed so the Chromium-based suite is unaffected.
+
+What that leaves genuinely unverified on the real engine:
+- whether `touchend` grants transient activation for `requestPermission` in Safari (high confidence — it is the documented and widely-used gesture, but unproven here)
+- `visualViewport` behaviour as iOS chrome slides in and out
+
+Everything else — the tap-vs-drag model, listener attachment, tilt mapping,
+layout sizing — is engine-independent and is verified.
 
 ## Open threads
 - [ ] Tucker to re-test on iPhone across the three browsers.
 - [ ] Barrel roll unreachable until ramps (or another angled launch) return.
-- [ ] Re-run the mobile suite under Playwright WebKit once it finishes installing.
+- [ ] Re-run the mobile suite under Playwright WebKit. Install stalls after download on this machine (three attempts); needs a different approach or a manual browser install.
 
 ## Commit log
+
+### 15:28 — 33eb6e0
+Document the mobile rescue and the ramp switch-off
+files: knowledge/decisions/2026-07-27-mobile-input-ungated.md, knowledge/decisions/2026-07-27-ramps-removed-not-deleted.md, knowledge/decisions/index.md, knowledge/journal/2026-07-27-landing-fix.md, knowledge/journal/2026-07-27-mobile-and-ramps.md, knowledge/journal/index.md, knowledge/wiki/index.md, knowledge/wiki/mobile.md, knowledge/wiki/roadmap.md

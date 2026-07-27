@@ -19,7 +19,7 @@ The "not now, but don't forget" pile.
 
 ## Deferred features
 - **Ramps are switched off**, machinery intact behind `RAMPS_ENABLED`. Tucker wants to redesign them before they return. Until then **barrel rolls are unreachable** — `spinAxis` is only set by an angled kicker.
-- **Verify mobile under Playwright WebKit.** The 2026-07-27 fixes were verified against Chromium iPhone emulation plus scripted iOS permission semantics; WebKit was still downloading.
+- **Verify mobile under real WebKit.** The 2026-07-27 fixes are verified against Chromium iPhone emulation + scripted iOS permission semantics only. Playwright's WebKit install stalls after download on this machine (three attempts, incl. a stale-lockfile cascade). Needs a different install route before this can be closed.
 - **Rider treatments 2–5** are specified and rendered but unbuilt. Halo needs its vertex-colour rim bake restored; the rim is baked against a fixed light direction so it won't follow the day cycle without a shader.
 - **Leaderboard is `localStorage` only.** No accounts, no server, no sharing beyond the JPEG card.
 - **No pause.** Deliberate per the original spec, but the continue panel now proves a pause surface would fit.
