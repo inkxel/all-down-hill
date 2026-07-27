@@ -52,9 +52,17 @@ roll (barrel roll) otherwise. Releasing freezes the angle where it is.
 
 ## Landing judgement
 
-Both axes are wrapped to ±180° and tested: pitch within `LAND_TOL` (25°), roll
-within `ROLL_TOL` (40°, deliberately forgiving because rolls are harder to read).
-Failing either is a crash. Rolls score double.
+Releasing the input eases the rotation toward the nearest whole turn
+(`settleSpin`) — past a half turn it carries you round and scores the trick,
+under that it straightens you up. Holding all the way into the ground lands you
+wherever you are, so greedy spinning keeps its risk.
+
+At touchdown both axes are wrapped to ±180° and tested: pitch within `LAND_TOL`
+(45°), roll within `ROLL_TOL` (55°). Failing either is a crash. Rolls score double.
+
+**Do not remove the settle.** Without it, rotation free-runs against an absolute
+window and any hold past ~90 ms is an unavoidable crash — measured at 24/24
+landings. See [[decisions/2026-07-27-spin-settle-assist]].
 
 ## The two bugs worth remembering
 
@@ -75,3 +83,9 @@ stops working, check that expression first.
 
 ### 2026-07-27 — Article created
 State after the feel rework. [[journal/2026-07-27-feel-rework]]
+
+### 2026-07-27 — Landing rewritten
+Rotation now settles to the nearest whole turn on release; tolerances widened to
+45°/55°. `land()` additionally refuses to judge while `vy > 0`. Correction to the
+above: the article previously documented "releasing freezes the angle," which was
+true and was the bug. [[journal/2026-07-27-landing-fix]]

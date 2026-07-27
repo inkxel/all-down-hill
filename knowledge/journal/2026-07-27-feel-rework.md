@@ -76,3 +76,7 @@ than on whether the game looked right.
 ### 08:22 — e2959b4
 Add knowledge layer: wiki, ADRs, journal, research
 files: .gitattributes, .githooks/post-commit, .gitignore, AGENTS.md, CLAUDE.md, README.md, knowledge/AGENTS.md, knowledge/CLAUDE.md, knowledge/decisions/2026-07-26-analytic-terrain-height.md, knowledge/decisions/2026-07-26-fixed-slot-instancing.md, knowledge/decisions/2026-07-26-float32-rebasing.md, knowledge/decisions/2026-07-26-light-intensity-pi-scale.md, +20 more
+
+### 11:13 — 43ff310
+Fix landing: ease a released spin to the nearest whole turn
+files: index.html

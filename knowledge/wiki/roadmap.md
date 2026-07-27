@@ -8,12 +8,13 @@ type: Reference
 The "not now, but don't forget" pile.
 
 ## Awaiting Tucker's feel notes
+- **Landing feel after the settle assist.** Crash rate under an adversarial bot is 32% (was 100%); no idea what a human rate looks like.
 - **Rider pose constants are provisional.** Shipped Ink to get it in his hands; crouch depth, arm swing and scarf sweep are all first-pass numbers.
 - **`RIDER_SCALE = 1.15`** is a readability compromise, not a considered proportion. Real scale is 1.0.
 
 ## Known-soft
 - **Section rhythm is fixed-period (350 m).** A long session will feel the loop. Density ramping masks it; it doesn't solve it.
-- **Barrel roll is hard to land.** `ROLL_RATE` is 400°/s against a 40° window — a full rotation needs release timing within ~100 ms. May want to snap toward the nearest 360° on release.
+- ~~**Barrel roll is hard to land.**~~ **Resolved 2026-07-27** — was systemic, not roll-specific: any hold past ~90 ms crashed on either axis. Fixed with a settle-to-nearest-turn assist. [[decisions/2026-07-27-spin-settle-assist]]
 - **Small kickers at ±14 units are still easy to miss** riding a straight line. The full-width feature is the only guaranteed hit.
 
 ## Deferred features

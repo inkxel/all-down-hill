@@ -11,3 +11,4 @@ date: 2026-07-27
 | ---- | ----------- |
 | [[2026-07-26-build-and-review]] — Build and review — first session | Built the game end to end in one file, deployed to Pages, then ran a correctness pass (Codex) and a complexity pass (ponytail-review). |
 | [[2026-07-27-feel-rework]] — Feel rework — Tucker's first play notes | Reworked jump, pacing, camera and the wipeout flow from Tucker's play notes; root-caused a 73m catapult; shipped the rigged rider; scaffolded this knowledge layer. |
+| [[2026-07-27-landing-fix]] — Landing fix — the rotation dead zone | Root-caused "landings are too precise" to a systemic dead zone where any hold past 90ms guaranteed a crash; fixed with a settle-to-nearest-turn assist. |

@@ -16,4 +16,5 @@ date: 2026-07-27
 | [[2026-07-26-single-file-cdn-three]] — Decision: One self-contained HTML file, Three.js from CDN only | The whole game ships as one index.html with Three.js from a CDN — no build step, no addons, no second dependency. |
 | [[2026-07-27-altos-jump-model]] — Decision: Alto's-style jump, no charge meter | Replaced the hold-to-charge jump with Alto's model — a press adds a hop to existing surface velocity, and holding in the air rotates. |
 | [[2026-07-27-section-based-pacing]] — Decision: Section-based pacing instead of uniform scatter | Props follow a repeating 350m rhythm — slalom, run-up, kickers, one feature, landing — instead of uniform random scatter. |
+| [[2026-07-27-spin-settle-assist]] — Decision: Ease a released spin to the nearest whole turn | A released spin eases to the nearest whole turn instead of freezing where it is; landing tolerances widen to 45/55 degrees. |
 | [[2026-07-27-three-continues-leaderboard]] — Decision: Three continues per run, then a leaderboard | Wiping out offers three continues per run that carry score and distance; running out ends the run to a local top-5 leaderboard with a JPEG card export. |
