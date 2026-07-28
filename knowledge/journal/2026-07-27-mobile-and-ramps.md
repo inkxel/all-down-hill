@@ -76,6 +76,29 @@ What that leaves genuinely unverified on the real engine:
 Everything else — the tap-vs-drag model, listener attachment, tilt mapping,
 layout sizing — is engine-independent and is verified.
 
+## Second pass — Tucker's follow-up
+"MUCH better", with two remaining issues, both real:
+
+**Y/N unreachable by tap.** The global `preventDefault()` on touch suppresses the
+synthetic `click`, so the panel buttons never fired — the only way out was a
+hardware keyboard. Verified before fixing: tapping Y produced zero click events
+and the panel stayed up. Fixed by exempting touches whose target is inside a
+`.veil`, plus binding the actions on `touchend` directly as a second guard. Whole
+continue → leaderboard → ride-again flow now driven by touch alone in test.
+
+**Tilt too twitchy.** Raw gamma went straight to input on a linear ramp with no
+smoothing — the smoothing the original spec asked for was never implemented.
+Added damping plus an expo curve. Small tilts are now about a third of what they
+were while full authority is unchanged, which is what he asked for ("wouldn't
+want to dial it way back").
+
+**Bonus find:** "end up off screen" was partly a camera bug, not just sensitivity.
+`camLagX` targeted `player.x * 0.86` and `camTgtX` targeted `player.x * 0.55` —
+scale factors that leave a *steady-state* offset proportional to |x|, swinging the
+rider out of frame near the edge. Lag should come from the damping, not an offset.
+Both now track the player fully; measured on-screen position is dead centre at
+every lateral offset out to x=34.
+
 ## Open threads
 - [ ] Tucker to re-test on iPhone across the three browsers.
 - [ ] Barrel roll unreachable until ramps (or another angled launch) return.
@@ -86,3 +109,11 @@ layout sizing — is engine-independent and is verified.
 ### 15:28 — 33eb6e0
 Document the mobile rescue and the ramp switch-off
 files: knowledge/decisions/2026-07-27-mobile-input-ungated.md, knowledge/decisions/2026-07-27-ramps-removed-not-deleted.md, knowledge/decisions/index.md, knowledge/journal/2026-07-27-landing-fix.md, knowledge/journal/2026-07-27-mobile-and-ramps.md, knowledge/journal/index.md, knowledge/wiki/index.md, knowledge/wiki/mobile.md, knowledge/wiki/roadmap.md
+
+### 16:00 — 08a06a6
+Record the WebKit verification gap honestly
+files: knowledge/journal/2026-07-27-mobile-and-ramps.md, knowledge/wiki/roadmap.md
+
+### 17:23 — f68740f
+Mobile: tappable crash panel, calmer tilt, centred camera
+files: index.html

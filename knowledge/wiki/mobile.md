@@ -52,6 +52,35 @@ Tilt reads `gamma`, remapped per `screen.orientation.angle` so landscape works,
 against a baseline captured on start and recaptured on orientation change and on
 resume from background.
 
+## UI touches must not be swallowed
+
+The game calls `preventDefault()` on touch events. That **suppresses the
+synthetic `click`**, so DOM buttons never fire from a tap — the crash panel's
+Y/N were unreachable on a phone without a hardware keyboard.
+
+Two guards, deliberately redundant:
+- `isUITouch()` — a touch whose target is inside `.veil` is skipped entirely: not added to `activeTouches`, and `preventDefault` is not called, so the native click works.
+- Every panel button is *also* bound on `touchend` directly, so if anything swallows the click again the panel is still escapable.
+
+**Any new DOM control must live inside a `.veil`, or repeat this.**
+
+## Tilt response
+
+Raw `gamma` is jittery, and a linear ramp turned that jitter into hard carves.
+Two shaping steps:
+- damped at `TILT_SMOOTH` before it becomes input
+- an expo curve, `t ^ TILT_EXPO`, between `TILT_DEAD` and `TILT_FULL`
+
+| tilt | linear (old) | expo (now) |
+|---|---|---|
+| 5° | 0.12 | 0.01 |
+| 10° | 0.34 | 0.11 |
+| 18° | 0.69 | 0.42 |
+| 28° | 1.00 | 1.00 |
+
+Full authority is intentionally preserved — the goal was to soften accidental
+input, not to reduce the ceiling. Neutral to full takes ~193ms.
+
 ## Viewport
 
 **iOS's layout viewport extends behind the browser chrome.** `window.innerHeight`
@@ -81,4 +110,10 @@ it fits either way round.
 
 ### 2026-07-27 — Article created
 Written after mobile was found to be entirely non-functional on iPhone.
+[[journal/2026-07-27-mobile-and-ramps]]
+
+### 2026-07-27 — Second mobile pass
+Crash-panel buttons were unreachable by tap (suppressed synthetic click); tilt
+was too twitchy; the camera's steady-state lateral offset pushed the rider out of
+frame near the playfield edge. All three fixed above.
 [[journal/2026-07-27-mobile-and-ramps]]
