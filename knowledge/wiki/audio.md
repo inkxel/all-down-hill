@@ -32,6 +32,25 @@ Continuous parameters are written straight to `.value` each frame and lerped in
 JS. **Do not use `setTargetAtTime` per frame** — it queues an event every call
 and they pile up.
 
+## iOS silences Web Audio with the ring switch
+
+**Web Audio is muted by the iOS silent switch. HTML5 media elements are not.**
+This is why the game was silent on a phone with the switch flipped while desktop
+was fine — and it is invisible in any desktop or emulator test.
+
+Two fixes applied together in `unmuteIOS()`:
+
+1. `navigator.audioSession.type = 'playback'` — Safari 16.4+, the standards route.
+2. A **looping silent clip in a media element**, which promotes the audio session out of the `ambient` category. Technique from [swevans/unmute](https://github.com/swevans/unmute) and [feross/unmute-ios-audio](https://github.com/feross/unmute-ios-audio), reimplemented rather than imported — the silent WAV is generated at runtime into a Blob, so it stays an "everything procedural" build.
+
+Two things that will break it if changed:
+- **The element must be appended to the document.** A detached media element does not reliably promote the session.
+- **It retries on every touch** until the context reaches `running`; the first gesture can land before iOS is willing.
+
+**Consequence worth knowing:** the game now plays audio even when the phone is
+switched to silent. That is normal for games but it is a deliberate choice, not
+an accident. Removing `unmuteIOS()` restores respect for the switch.
+
 ## Music
 
 Technique from [generative.fm](https://github.com/generativefm), implemented in

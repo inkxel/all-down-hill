@@ -69,8 +69,25 @@ freeze. Resuming re-learns the tilt neutral — the phone has almost certainly
 moved — and grants a short grace. Verified a single finger still jumps rather
 than pausing.
 
+## Third pass — no audio on mobile at all
+Tucker: no audio on mobile, and he had assumed his volume was down.
+
+**Web Audio is silenced by the iOS ring/silent switch; HTML5 media elements are
+not.** Nothing to do with volume, gestures, or the AudioContext — and completely
+invisible to every test I can run, because neither desktop Chromium nor its
+iPhone emulation has a silent switch.
+
+Fixed with the AudioSession API plus the established looping-silent-element
+trick. Verified the mechanism (session set to `playback`, element in the DOM,
+looping, playsinline, Blob src, context `running`, no duplicate on a second
+gesture) — but **not the actual mute-switch behaviour**, which needs his phone.
+
+Note this makes the game override the silent switch. Standard for games,
+deliberate, and reversible.
+
 ## Open threads
-- [ ] **No mute control.** If the music is unwanted there is no way to turn it off without editing the file.
+- [ ] **No mute control** — now more pressing, since the game overrides the iOS silent switch. A player who mutes their phone has no way to mute the game.
+- [ ] iOS silent-switch bypass verified by mechanism only; real-device confirmation outstanding.
 - [ ] Tucker to judge the mix. `MUSIC_GAIN` is 0.17.
 - [x] ~~Carve → filter link unverified~~ — measured 2026-07-27: 496Hz/Q3 → 2466Hz/Q9.5 while riding.
 - [ ] Grind capture may now be too sticky after the previous pass widened it.
@@ -83,4 +100,12 @@ files: knowledge/decisions/2026-07-27-generative-music.md, knowledge/decisions/i
 
 ### 19:30 — fb7388e
 Louder, audibly reactive music; pause on Enter / two-finger tap
+files: index.html
+
+### 19:32 — 374de8b
+Document the music mix pass and pause
+files: knowledge/journal/2026-07-27-music-and-dismount.md, knowledge/wiki/audio.md
+
+### 19:51 — 0418b14
+Play audio on iOS even with the ring/silent switch on
 files: index.html
