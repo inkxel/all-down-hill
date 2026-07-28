@@ -10,10 +10,6 @@ Carve an infinite mountain that generates itself as you go. Link tricks off rock
 
 <sub>No install · No accounts · Works on desktop and phone</sub>
 
-<br>
-
-![gameplay](media/gameplay.gif)
-
 </div>
 
 ---
@@ -46,6 +42,7 @@ Wipe out and you get three continues. After that the run's over and it goes on t
 <div align="center">
 <img src="media/shot-golden.jpg" width="49%"> <img src="media/shot-night.jpg" width="49%">
 <img src="media/shot-dawn.jpg" width="49%"> <img src="media/shot-day.jpg" width="49%">
+<br><sub>Golden hour · night · dawn · midday — all the same run, four minutes apart</sub>
 </div>
 
 ## Made from nothing
@@ -58,12 +55,6 @@ The whole game is one `index.html`. Three.js comes from a CDN; everything else i
 git clone https://github.com/inkxel/all-down-hill.git
 cd all-down-hill && python3 -m http.server
 ```
-
-## Under the hood
-
-Curious how it works, or why it's shaped this way? The [`knowledge/`](knowledge/AGENTS.md) folder has the whole build: decision records, session-by-session history, and a wiki covering the [terrain](knowledge/wiki/terrain.md), [physics](knowledge/wiki/physics.md), [rider rig](knowledge/wiki/rider.md), [sky and weather](knowledge/wiki/atmosphere.md), and [mobile input](knowledge/wiki/mobile.md).
-
-Start with [`knowledge/wiki/index-map.md`](knowledge/wiki/index-map.md) if you want to find your way around the source.
 
 ---
 

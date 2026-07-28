@@ -326,8 +326,8 @@ const LOG_R   = 0.44;         // downed log you grind along
 const LOG_LEN = 16;
 const LOG_H   = 0.92;         // grind surface above the snow
 const GRIND_LINK = 0.25;      // seconds of grind per chain link
-const HOP_RANGE   = 15;       // metres ahead a log will capture a jump
-const HOP_LATERAL = 4.5;      // how far off the log's line the assist still fires
+const HOP_RANGE   = 20;       // metres ahead a log will capture a jump
+const HOP_LATERAL = 8;        // how far off the log's line the assist still fires
 const HOP_VY_MAX  = 20;       // ceiling on the solved hop, so it stays a hop
 
 const DAY_LEN = 240;          // 4 minute cycle
@@ -967,11 +967,11 @@ const RAMPS_ENABLED = false;
 const SECTIONS = [
   { trees: 13, rocks: 6, ramps: 0, logs: 0 },           // slalom
   { trees: 17, rocks: 8, ramps: 0, logs: 0 },           // slalom, tighter
-  { trees: 3,  rocks: 1, ramps: 0, logs: 0 },           // run-up
-  { trees: 6,  rocks: 3, ramps: 2, logs: 1 },           // play
-  { trees: 2,  rocks: 0, ramps: 0, logs: 0 },           // run-up
+  { trees: 3,  rocks: 1, ramps: 0, logs: 1 },           // run-up
+  { trees: 6,  rocks: 3, ramps: 2, logs: 2 },           // play
+  { trees: 2,  rocks: 0, ramps: 0, logs: 1 },           // run-up
   { trees: 2,  rocks: 0, ramps: 1, logs: 2, big: true },// the feature
-  { trees: 4,  rocks: 1, ramps: 0, logs: 0 }            // landing / recover
+  { trees: 4,  rocks: 1, ramps: 0, logs: 1 }            // landing / recover
 ];
 
 function scatterProps(c, k) {
@@ -1003,7 +1003,7 @@ function scatterProps(c, k) {
 
   c.ln = Math.min(MAX_LOG, sec.logs || 0);
   for (let i = 0; i < c.ln; i++) {
-    c.lx[i] = (rnd() * 2 - 1) * 20;
+    c.lx[i] = (rnd() * 2 - 1) * 16;
     c.lz[i] = c.cz + (i - (c.ln - 1) * 0.5) * 24 + (rnd() - 0.5) * 5;
   }
 
@@ -1592,6 +1592,7 @@ function chime() {
 let steerL = false, steerR = false, jumpHeld = false;
 let touchSteer = false, tiltOn = false, gotTilt = false, sawTouch = false, motionArmed = false;
 let tiltRaw = 0, tiltBase = null, needBaseline = false, tiltAngle = 0;
+let tiltSettle = 0;   // while > 0 the neutral is still being learned, so don't steer
 let touchSteerInput = 0;
 const activeTouches = new Map();
 
@@ -1771,6 +1772,7 @@ function steerInput() {
   const kb = (steerR ? 1 : 0) - (steerL ? 1 : 0);
   if (kb !== 0) return kb;
   if (tiltOn && tiltBase !== null) {
+    if (tiltSettle > 0) return 0;
     steerFromTilt = true;
     const a = Math.abs(tiltAngle);
     if (a <= TILT_DEAD) return 0;
@@ -2102,7 +2104,7 @@ function respawn() {
   player.position.x = clamp(player.position.x, -18, 18);
   player.position.y = groundAt(player.position.x, player.position.z);
   grounded = true;
-  if (isTouch && tiltOn) needBaseline = true;
+  if (tiltOn) { needBaseline = true; tiltSettle = 0.6; }
   for (let i = 0; i < TRAIL_N * 2; i++) trailA[i] = 0;
 }
 
@@ -2170,7 +2172,7 @@ function simulate(dt) {
   if (hopT > 0) {
     hopT -= dt;
     if (grounded || grinding) hopT = 0;
-    else if (inp === 0) player.position.x = damp(player.position.x, hopX, 4.6, dt);
+    else player.position.x = damp(player.position.x, hopX, inp === 0 ? 6.5 : 2.2, dt);
   }
 
   player.position.x += vx * dt;
@@ -2277,11 +2279,12 @@ function simulate(dt) {
       if (vy <= 0) {
         if (state === 'ride') land(vy); else { grounded = true; vy = 0; }
       }
-    } else if (state === 'ride' && vy <= 0 && player.position.y <= logY + 0.55 &&
-               player.position.y > logY - 1.6 && logUnder(px, pz, LOG_R + 1.25)) {
+    } else if (state === 'ride' && vy <= 0 && player.position.y <= logY + 0.75 &&
+               player.position.y > logY - 2.4 && logUnder(px, pz, LOG_R + 2.4)) {
       // dropped onto a log — start grinding
       grinding = true;
       grindX = _logX;
+      player.position.x = damp(player.position.x, _logX, 30, dt);   // pull onto the line
       grindEndZ = _logEndZ;
       grindAcc = 0;
       player.position.y = logY;
@@ -2298,10 +2301,12 @@ function simulate(dt) {
   /* ---- obstacle collision ---- */
   if (graceT > 0) graceT -= dt;
   if (springT > 0) springT -= dt;
+  // Only a square hit at snow level is fatal. Clipping the side of a log while
+  // trying for a grind used to kill outright, which made every attempt a gamble.
   if (state === 'ride' && graceT <= 0 && springT <= 0 && !grinding &&
-      player.position.y < terrainHeight(px, pz) + LOG_H - 0.45 &&
-      logUnder(px, pz, LOG_R + 0.45)) {
-    doCrash(); return;                   // hit a log at snow level
+      player.position.y < terrainHeight(px, pz) + LOG_H - 0.75 &&
+      logUnder(px, pz, LOG_R * 0.8)) {
+    doCrash(); return;
   }
   if (state === 'ride' && graceT <= 0 && springT <= 0 && !grinding) {
     // Height is a range, not a point: at 42 u/s the rider can cross an obstacle's
@@ -2639,6 +2644,15 @@ function frame(now) {
     if (crashT <= 0) showWipe();
   }
 
+  if (tiltOn) {
+    if (state === 'wiped' || state === 'board' || state === 'crash') tiltSettle = 0.6;
+    if (tiltSettle > 0) {
+      tiltSettle -= raw;              // raw, so it still runs while the sim is paused
+      tiltBase = tiltRaw;
+      tiltAngle = 0;
+    }
+  }
+
   const px0 = player.position.x, py0 = player.position.y, pz0 = player.position.z;
 
   simulate(dt);
@@ -2810,7 +2824,7 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('scroll', resize);   // chrome sliding in/out
 }
 window.addEventListener('orientationchange', () => {
-  if (tiltOn) needBaseline = true;   // gamma/beta remap changes under the new angle
+  if (tiltOn) { needBaseline = true; tiltSettle = 0.6; }   // remap changes under the new angle
   setTimeout(resize, 120);
   setTimeout(resize, 400);           // iOS reports stale sizes right after the flip
 });
@@ -2855,7 +2869,7 @@ document.addEventListener('visibilitychange', () => {
     if (actx && actx.state === 'running') actx.suspend();
   } else {
     last = performance.now();
-    if (tiltOn) needBaseline = true;
+    if (tiltOn) { needBaseline = true; tiltSettle = 0.6; }
     if (actx && actx.state === 'suspended' && started) actx.resume();
   }
 });

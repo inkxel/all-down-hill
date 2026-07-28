@@ -68,3 +68,7 @@ to the README, and the build history is left accurate.
 - [ ] Hop assist success unmeasured for a human aiming deliberately.
 
 ## Commit log
+
+### 18:21 — cbe7131
+Document the tilt rework and hop assist
+files: knowledge/decisions/2026-07-27-tilt-gravity-projection.md, knowledge/decisions/index.md, knowledge/journal/2026-07-27-tilt-and-hop.md, knowledge/journal/2026-07-27-trick-chain.md, knowledge/journal/index.md, knowledge/wiki/mobile.md
