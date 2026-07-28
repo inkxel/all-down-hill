@@ -90,7 +90,7 @@ heap pointed straight at sustained-but-bounded waste instead.
 
 ## Open threads
 - [ ] Ghost line contrast is a guess (0.44 opacity on snow). Needs a human eye.
-- [ ] A second Codex pass on CPU/leaks was still running when this was written; findings not yet folded in.
+- [x] ~~Second Codex pass pending~~ — completed 2026-07-28, see [[journal/2026-07-28-codex-pass]].
 - [ ] A ghost is a trace, not a rival — no timing, so it cannot be raced. Deliberate; revisit only if racing is wanted.
 - [ ] README hook can now honestly become "ride someone else's mountain and see where they fell". Not yet written.
 - [ ] No mute control, still.

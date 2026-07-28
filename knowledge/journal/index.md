@@ -1,6 +1,6 @@
 ---
 generated: true
-date: 2026-07-27
+date: 2026-07-28
 ---
 
 # journal/
@@ -17,3 +17,5 @@ date: 2026-07-27
 | [[2026-07-27-shared-mountains]] — Shared mountains | Built the shared mountains arc — seeded terrain, ghost tracks carried in the URL, a top-5 ladder, a guaranteed clear start lane, and weather-driven music. |
 | [[2026-07-27-tilt-and-hop]] — Tilt, hop assist, README | Fixed tilt steering at the signal and control-model level, added a log hop assist, and rewrote the README as a game intro. |
 | [[2026-07-27-trick-chain]] — Trick chain + grinds | Added rock bounces, tree-crown springs and grindable logs feeding a trick chain; platform-appropriate crash prompt. |
+| [[2026-07-28-codex-pass]] — Codex pass | Codex review of the CPU issue and the new systems; confirmed the title-screen diagnosis and found a weather desync my determinism test was blind to. |
+| [[2026-07-28-session]] — Session — 2026-07-28 | — |
