@@ -55,7 +55,7 @@
     opacity: .5; margin-top: 7px; font-variant-numeric: tabular-nums;
   }
   #mult {
-    display: inline-block; margin-top: 8px;
+    display: inline-block; margin-top: 8px; text-transform: uppercase;
     font-size: clamp(13px, 2.2vw, 17px); font-weight: 300; letter-spacing: .13em;
     color: #ffd48a; opacity: 0; transition: opacity 260ms ease;
   }
@@ -185,8 +185,8 @@
   <div class="pmeta" id="wMeta">0 M</div>
   <p class="pq" id="wQ">Keep going?</p>
   <div class="prow">
-    <button class="btn" id="btnY">Y &nbsp;·&nbsp; Keep going</button>
-    <button class="btn dim" id="btnN">N &nbsp;·&nbsp; End run</button>
+    <button class="btn" id="btnY">Keep going</button>
+    <button class="btn dim" id="btnN">End run</button>
   </div>
 </div></div>
 
@@ -308,15 +308,28 @@ const ROLL_TOL    = 55;       // deg of roll from upright — deliberately forgi
 const SETTLE_MIN  = 240;      // deg/sec floor when easing to the nearest whole turn
 const SETTLE_RATE = 6;        // proportional term on the same ease
 const SETTLE_MAX  = 900;      // deg/sec ceiling, so the ease reads as a tuck not a snap
+
+// Trick chain: obstacles you clip in the air become launchers instead of deaths,
+// so tricks stack across a single flight and bank when you finally touch snow.
+const ROCK_POP    = 9;        // floor on the upward kick off a rock
+const ROCK_BOUNCE = 0.72;     // fraction of downward speed returned
+const TREE_POP    = 12.5;     // springing off the top of a pine
+const TREE_TOP    = 0.26;     // fraction of tree height that counts as clippable
+const CHAIN_CAP   = 8;
 const BOOST_MUL   = 1.15;
 const BOOST_TIME  = 2.0;
 
 const RAMP_L = 8.0, RAMP_W = 5.5, RAMP_H = 1.9;
 const RAMP_BIG_W = 15;        // the full-width feature kicker
 
+const LOG_R   = 0.44;         // downed log you grind along
+const LOG_LEN = 16;
+const LOG_H   = 0.92;         // grind surface above the snow
+const GRIND_LINK = 0.25;      // seconds of grind per chain link
+
 const DAY_LEN = 240;          // 4 minute cycle
 
-const MAX_TREE = 26, MAX_ROCK = 18, MAX_RAMP = 3;
+const MAX_TREE = 26, MAX_ROCK = 18, MAX_RAMP = 3, MAX_LOG = 2;
 
 /* ---------------------------- device / DOM ----------------------------- */
 
@@ -681,6 +694,25 @@ function rampRise(x, z) {
 
 const groundAt = (x, z) => terrainHeight(x, z) + rampRise(x, z);
 
+// Nearest grindable log under (x, z). Returns the chunk-local index packed with
+// its chunk, or null. Called a handful of times per frame at most.
+let _logX = 0, _logEndZ = 0;
+function logUnder(x, z, lateral) {
+  for (let i = 0; i < chunks.length; i++) {
+    const c = chunks[i];
+    if (Math.abs(c.cz - z) > CHUNK_D * 0.5 + LOG_LEN) continue;
+    for (let l = 0; l < c.ln; l++) {
+      if (Math.abs(x - c.lx[l]) > lateral) continue;
+      const dz = z - c.lz[l];
+      if (dz < -LOG_LEN * 0.5 || dz > LOG_LEN * 0.5) continue;
+      _logX = c.lx[l];
+      _logEndZ = c.lz[l] - LOG_LEN * 0.5;
+      return true;
+    }
+  }
+  return false;
+}
+
 function terrainNormal(x, z, out) {
   const e = 0.7;
   out.set(
@@ -806,12 +838,32 @@ function buildRampGeo() {
   return g;
 }
 
+function buildLogGeo() {
+  const parts = [];
+  const trunk = new THREE.CylinderGeometry(LOG_R, LOG_R * 0.88, LOG_LEN, 9);
+  trunk.rotateX(Math.PI / 2);                       // lie it down the fall line
+  parts.push(tinted(trunk, 0x4a3a2c));
+  // a strip of snow along the top so it reads as grindable, not just scenery
+  const cap = new THREE.CylinderGeometry(LOG_R * 0.62, LOG_R * 0.62, LOG_LEN * 0.99, 7);
+  cap.rotateX(Math.PI / 2);
+  cap.translate(0, LOG_R * 0.52, 0);
+  parts.push(tinted(cap, 0xeef4fb));
+  for (const [z, r] of [[-LOG_LEN / 2, LOG_R], [LOG_LEN / 2, LOG_R * 0.88]]) {
+    const stub = new THREE.CylinderGeometry(r * 1.06, r * 1.06, 0.16, 9);
+    stub.rotateX(Math.PI / 2);
+    stub.translate(0, 0, z);
+    parts.push(tinted(stub, 0x6b543f));
+  }
+  return mergeGeos(parts);
+}
+
 const propMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
 
 const treeMesh = new THREE.InstancedMesh(buildTreeGeo(), propMat, N_CHUNKS * MAX_TREE);
 const rockMesh = new THREE.InstancedMesh(buildRockGeo(), propMat, N_CHUNKS * MAX_ROCK);
 const rampMesh = new THREE.InstancedMesh(buildRampGeo(), propMat, N_CHUNKS * MAX_RAMP);
-for (const m of [treeMesh, rockMesh, rampMesh]) {
+const logMesh  = new THREE.InstancedMesh(buildLogGeo(),  propMat, N_CHUNKS * MAX_LOG);
+for (const m of [treeMesh, rockMesh, rampMesh, logMesh]) {
   m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   m.frustumCulled = false;   // instances are recycled; a cached bounding sphere would go stale
   scene.add(m);
@@ -845,6 +897,7 @@ function makeChunk() {
     px: new Float32Array(MAX_RAMP), pz: new Float32Array(MAX_RAMP),
     pr: new Float32Array(MAX_RAMP), pw: new Float32Array(MAX_RAMP),
     ps: new Float32Array(MAX_RAMP), pn: 0,
+    lx: new Float32Array(MAX_LOG), lz: new Float32Array(MAX_LOG), ln: 0,
     slot: 0
   };
 }
@@ -890,13 +943,13 @@ function buildChunk(c, k) {
 const RAMPS_ENABLED = false;
 
 const SECTIONS = [
-  { trees: 13, rocks: 6, ramps: 0 },                    // slalom
-  { trees: 17, rocks: 8, ramps: 0 },                    // slalom, tighter
-  { trees: 3,  rocks: 1, ramps: 0 },                    // run-up
-  { trees: 6,  rocks: 3, ramps: 2 },                    // play
-  { trees: 2,  rocks: 0, ramps: 0 },                    // run-up
-  { trees: 2,  rocks: 0, ramps: 1, big: true },         // the feature
-  { trees: 4,  rocks: 1, ramps: 0 }                     // landing / recover
+  { trees: 13, rocks: 6, ramps: 0, logs: 0 },           // slalom
+  { trees: 17, rocks: 8, ramps: 0, logs: 0 },           // slalom, tighter
+  { trees: 3,  rocks: 1, ramps: 0, logs: 0 },           // run-up
+  { trees: 6,  rocks: 3, ramps: 2, logs: 1 },           // play
+  { trees: 2,  rocks: 0, ramps: 0, logs: 0 },           // run-up
+  { trees: 2,  rocks: 0, ramps: 1, logs: 2, big: true },// the feature
+  { trees: 4,  rocks: 1, ramps: 0, logs: 0 }            // landing / recover
 ];
 
 function scatterProps(c, k) {
@@ -926,9 +979,20 @@ function scatterProps(c, k) {
     }
   }
 
+  c.ln = Math.min(MAX_LOG, sec.logs || 0);
+  for (let i = 0; i < c.ln; i++) {
+    c.lx[i] = (rnd() * 2 - 1) * 20;
+    c.lz[i] = c.cz + (i - (c.ln - 1) * 0.5) * 24 + (rnd() - 0.5) * 5;
+  }
+
+  // trees and rocks keep clear of both ramps and logs — a grind needs a clean
+  // approach and somewhere to land
   const clearOfRamp = (x, z, pad) => {
     for (let i = 0; i < c.pn; i++) {
       if (Math.abs(x - c.px[i]) < c.pw[i] * 0.5 + pad && Math.abs(z - c.pz[i]) < RAMP_L * 0.5 + pad) return false;
+    }
+    for (let i = 0; i < c.ln; i++) {
+      if (Math.abs(x - c.lx[i]) < 4 + pad && Math.abs(z - c.lz[i]) < LOG_LEN * 0.5 + pad + 6) return false;
     }
     return true;
   };
@@ -999,6 +1063,22 @@ function scatterProps(c, k) {
       rampMesh.setMatrixAt(s * MAX_RAMP + i, HIDDEN);
     }
   }
+  for (let i = 0; i < MAX_LOG; i++) {
+    if (i < c.ln) {
+      const x = c.lx[i], z = c.lz[i];
+      const pitch = Math.atan2(
+        terrainHeight(x, z + LOG_LEN * 0.5) - terrainHeight(x, z - LOG_LEN * 0.5), LOG_LEN);
+      _v3.set(x, terrainHeight(x, z) + LOG_H - LOG_R, z);
+      _euler.set(-pitch, 0, 0, 'YXZ');
+      _q.setFromEuler(_euler);
+      _v3b.set(1, 1, 1);
+      _m4.compose(_v3, _q, _v3b);
+      logMesh.setMatrixAt(c.slot * MAX_LOG + i, _m4);
+    } else {
+      logMesh.setMatrixAt(c.slot * MAX_LOG + i, HIDDEN);
+    }
+  }
+  logMesh.instanceMatrix.needsUpdate = true;
   treeMesh.instanceMatrix.needsUpdate = true;
   rockMesh.instanceMatrix.needsUpdate = true;
   rampMesh.instanceMatrix.needsUpdate = true;
@@ -1778,6 +1858,9 @@ let score = 0, mult = 1, distance = 0;
 let vx = 0, vy = 0, fwd = SPD_BASE;
 let grounded = true, flipRot = 0, rollRot = 0, spinAxis = 0;
 let jumpPressed = false, compress = 0;
+let chain = 0;                    // links banked on the next clean landing
+let grinding = false, grindX = 0, grindEndZ = 0, grindAcc = 0;
+let springT = 0;                  // brief pass-through so one obstacle cannot bounce you twice
 let armedSpin = 0, armedT = 0;   // spin axis of the kicker you were last on
 const MAX_CONTINUES = 3;
 let continuesLeft = MAX_CONTINUES, runBestMult = 1;
@@ -1825,6 +1908,8 @@ function doCrash() {
   crashT = 1.15;
   shake = Math.min(0.65, 0.30 + fwd * 0.006);
   hitFlash = 0.55;
+  chain = 0;
+  grinding = false;
   burst(isTouch ? 26 : 48, 7);
   thud(1.35);
   saveBest();
@@ -1832,20 +1917,27 @@ function doCrash() {
   el.mult.classList.remove('on');
 }
 
+// Y/N only means something to someone with a keyboard.
+const usingTouch = () => isTouch || sawTouch;
+
 function showWipe() {
   state = 'wiped';
   clearInput();                 // a touch held through the crash must not carry over
   el.crash.classList.remove('on');
+  const touch = usingTouch();
   el.wScore.textContent = Math.floor(score).toLocaleString('en-US');
   el.wMeta.textContent = Math.floor(distance) + ' M  ·  BEST ×' + runBestMult;
   if (continuesLeft > 0) {
-    el.wQ.textContent = 'Keep going?  ' + continuesLeft + ' left';
+    el.wQ.textContent = touch
+      ? 'Keep going?  ' + continuesLeft + ' left'
+      : 'Keep going?  Y / N  ·  ' + continuesLeft + ' left';
     el.btnY.style.display = '';
-    el.btnN.textContent = 'N · End run';
+    el.btnY.textContent = touch ? 'Keep going' : 'Y · Keep going';
+    el.btnN.textContent = touch ? 'End run' : 'N · End run';
   } else {
     el.wQ.textContent = 'No continues left';
     el.btnY.style.display = 'none';
-    el.btnN.textContent = 'See your runs';
+    el.btnN.textContent = touch ? 'See your runs' : 'N · See your runs';
   }
   el.wipe.classList.add('on');
 }
@@ -1876,6 +1968,7 @@ function endRun() {
 }
 
 function renderBoard() {
+  el.btnAgain.textContent = usingTouch() ? 'Ride again' : 'Ride again  ·  ENTER';
   el.lbList.textContent = '';
   if (!runs.length) {
     const li = document.createElement('li');
@@ -1907,6 +2000,19 @@ function newRun() {
   el.hud.classList.add('on');
 }
 
+// Clipping an obstacle in the air relaunches you and adds a link to the chain.
+function springOff(up, power) {
+  vy = Math.max(vy, 0) + up;
+  springT = 0.28;
+  grounded = false;
+  if (chain < CHAIN_CAP) chain++;
+  compress = Math.min(1, compress + 0.3);
+  shake = Math.max(shake, 0.06 + power * 0.10);
+  burst(isTouch ? 8 : 16, 2.5 + power * 3);
+  thud(0.30 + power * 0.4);
+  chime();
+}
+
 function land(impactVy) {
   const wrap = a => { a %= 360; if (a > 180) a -= 360; else if (a < -180) a += 360; return a; };
   const offPitch = wrap(flipRot), offRoll = wrap(rollRot);
@@ -1928,21 +2034,24 @@ function land(impactVy) {
   thud(0.45 + power * 0.8);
   burst(isTouch ? 10 : 20, 3 + power * 4);
 
-  const tricks = flips + rolls * 2;      // barrel rolls are worth more
+  const tricks = flips + rolls * 2 + chain;   // rolls are worth more; chain links stack
   if (tricks >= 1) {
     mult = Math.min(9, mult + tricks);
     runBestMult = Math.max(runBestMult, mult);
-    score += tricks * 260 * mult;
+    // a longer chain is worth more per link, not just more links
+    score += tricks * 260 * mult * (1 + chain * 0.35);
     slowT = 0.42;
     chime();
     el.mult.classList.add('on');
   }
+  chain = 0;
 }
 
 function respawn() {
   state = 'ride';
   el.crash.classList.remove('on');
-  vx = 0; vy = 0; flipRot = 0; rollRot = 0; spinAxis = 0; boostT = 0; compress = 0;
+  vx = 0; vy = 0; flipRot = 0; rollRot = 0; spinAxis = 0; boostT = 0; compress = 0; chain = 0; springT = 0;
+  grinding = false; grindAcc = 0;
   survivalT = 0; mult = 1;
   graceT = 0.9;   // respawning inside the tree you just hit is not a death you can avoid
   bankCur = 0;
@@ -2022,13 +2131,42 @@ function simulate(dt) {
 
   /* ---- vertical ---- */
   const gy = groundAt(px, pz);
+  const logY = terrainHeight(px, pz) + LOG_H;
   // groundAt just queried (px, pz), so _rampSpin belongs to the ground underfoot.
   // An angled kicker gets crossed diagonally and you often leave through its side
   // a frame or two before the launch fires, so remember it briefly.
   if (_rampSpin !== 0) { armedSpin = _rampSpin; armedT = 0.30; }
   else if (armedT > 0) armedT -= dt;
 
-  if (grounded) {
+  if (grinding) {
+    // Locked to the log: height, line and lateral drift all come from the log,
+    // and the only way off is a jump before it runs out.
+    player.position.y = logY;
+    vy = 0;
+    grounded = true;
+    player.position.x = damp(player.position.x, grindX, 12, dt);
+    vx = damp(vx, 0, 10, dt);
+
+    grindAcc += dt;
+    if (grindAcc >= GRIND_LINK) {
+      grindAcc -= GRIND_LINK;
+      if (chain < CHAIN_CAP) chain++;
+    }
+    score += fwd * dt * 1.6 * mult;      // grinding pays while you hold it
+
+    if (state === 'ride' && jumpPressed) {
+      grinding = false;
+      grounded = false;
+      vy = JUMP_POP + 4.5;
+      if (chain < CHAIN_CAP) chain++;
+      whoosh();
+      burst(isTouch ? 8 : 16, 3);
+    } else if (pz < grindEndZ) {
+      grinding = false;                  // rode off the end
+      doCrash();
+      return;
+    }
+  } else if (grounded) {
     const prevGy = groundAt(px0, pz0);
     // Clamped: any one-frame step in ground height (a ramp edge, a rebuilt
     // chunk) would otherwise read as a colossal upward throw.
@@ -2072,28 +2210,67 @@ function simulate(dt) {
       if (vy <= 0) {
         if (state === 'ride') land(vy); else { grounded = true; vy = 0; }
       }
+    } else if (state === 'ride' && vy <= 0 && player.position.y <= logY + 0.3 &&
+               player.position.y > logY - 1.4 && logUnder(px, pz, LOG_R + 0.75)) {
+      // dropped onto a log — start grinding
+      grinding = true;
+      grindX = _logX;
+      grindEndZ = _logEndZ;
+      grindAcc = 0;
+      player.position.y = logY;
+      vy = 0;
+      flipRot = 0; rollRot = 0; spinAxis = 0;
+      compress = Math.min(1, compress + 0.4);
+      shake = Math.max(shake, 0.09);
+      thud(0.5);
+      chime();
     }
   }
   jumpPressed = false;
 
   /* ---- obstacle collision ---- */
   if (graceT > 0) graceT -= dt;
-  if (state === 'ride' && graceT <= 0) {
-    const h = player.position.y - terrainHeight(px, pz);
+  if (springT > 0) springT -= dt;
+  if (state === 'ride' && graceT <= 0 && springT <= 0 && !grinding &&
+      player.position.y < terrainHeight(px, pz) + LOG_H - 0.45 &&
+      logUnder(px, pz, LOG_R + 0.45)) {
+    doCrash(); return;                   // hit a log at snow level
+  }
+  if (state === 'ride' && graceT <= 0 && springT <= 0 && !grinding) {
+    // Height is a range, not a point: at 42 u/s the rider can cross an obstacle's
+    // crown inside a single frame, so test the band swept during the step.
+    const hNow = player.position.y - terrainHeight(px, pz);
+    const hPrev = py0 - terrainHeight(px0, pz0);
+    const hHi = hNow > hPrev ? hNow : hPrev;
+    const hLo = hNow > hPrev ? hPrev : hNow;
+
     for (let i = 0; i < chunks.length; i++) {
       const c = chunks[i];
       if (Math.abs(c.cz - pz) > CHUNK_D * 0.6 + 8) continue;
+
       for (let t = 0; t < c.tn; t++) {
         const s = c.ts[t];
-        if (h > 5.4 * s) continue;
+        const top = 5.4 * s;
+        if (hLo > top) continue;                                // sailed clean over
         const r = 0.72 * s + 0.5;
-        if (sweptDistSq(px0, pz0, px, pz, c.tx[t], c.tz[t]) < r * r) { doCrash(); return; }
+        if (sweptDistSq(px0, pz0, px, pz, c.tx[t], c.tz[t]) >= r * r) continue;
+        // clipping the crown springs you higher instead of killing you
+        if (!grounded && hHi > top * (1 - TREE_TOP)) { springOff(TREE_POP, 0.9); continue; }
+        doCrash(); return;
       }
+
       for (let t = 0; t < c.rn; t++) {
         const s = c.rs[t];
-        if (h > 1.05 * s) continue;
+        const top = 1.05 * s;
+        if (hLo > top + 0.9) continue;                          // well above it
         const r = 0.82 * s + 0.5;
-        if (sweptDistSq(px0, pz0, px, pz, c.rx[t], c.rz[t]) < r * r) { doCrash(); return; }
+        if (sweptDistSq(px0, pz0, px, pz, c.rx[t], c.rz[t]) >= r * r) continue;
+        // catching the crown of a rock is a bounce, not a wipeout
+        if (!grounded && hHi > top - 0.5) {
+          springOff(Math.max(-vy * ROCK_BOUNCE, ROCK_POP), 0.55);
+          continue;
+        }
+        doCrash(); return;
       }
     }
   }
@@ -2354,9 +2531,10 @@ function updateHUD(raw) {
   }
   const dt2 = Math.floor(distance) + ' M';
   if (dt2 !== lastDistTxt) { el.dist.textContent = dt2; lastDistTxt = dt2; }
-  const mt = '×' + mult;
+  const mt = chain > 0 ? 'chain ×' + chain : '×' + mult;
   if (mt !== lastMultTxt) { el.mult.textContent = mt; lastMultTxt = mt; }
-  if (mult > 1) el.mult.classList.add('on');
+  if (mult > 1 || chain > 0) el.mult.classList.add('on');
+  else el.mult.classList.remove('on');
 }
 
 /* ====================================================================== */
