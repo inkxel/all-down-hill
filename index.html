@@ -306,11 +306,12 @@ const TILT_EXPO   = 1.7;      // >1 softens small tilts without capping the top 
 const TILT_SMOOTH = 11;       // damping on the raw sensor, which is noisy
 const GRAVITY     = -32;
 const JUMP_POP    = 9.5;      // hop added on press, on top of surface velocity
-const SURF_VY_MAX = 24;       // cap on surface-follow lift (anti-catapult)
+const SURF_VY_MAX = 30;       // cap on surface-follow lift (anti-catapult). 24 made a
+                              // double flip mathematically impossible: 1.5s of air, 540 deg.
 const BANK_MAX    = 30 * Math.PI / 180;
 const BANK_RATE   = 6;
 const ALIGN_RATE  = 8;
-const FLIP_RATE   = 360;      // deg/sec, backflip
+const FLIP_RATE   = 400;      // deg/sec, flips
 const ROLL_RATE   = 400;      // deg/sec, barrel roll off an angled kicker
 const LAND_TOL    = 45;       // deg of pitch from upright
 const ROLL_TOL    = 55;       // deg of roll from upright — deliberately forgiving
@@ -325,6 +326,13 @@ const ROCK_BOUNCE = 0.72;     // fraction of downward speed returned
 const TREE_POP    = 12.5;     // springing off the top of a pine
 const TREE_TOP    = 0.26;     // fraction of tree height that counts as clippable
 const CHAIN_CAP   = 8;
+
+/* Tricks. Holding with no direction is a grab; up rolls you forward, down rolls
+   you back. Carving hard into the lip corkscrews you instead — you are already
+   banked, so the roll is the natural continuation. */
+const T_GRAB = 0, T_FRONT = 1, T_BACK = 2, T_ROLL = 3;
+const CARVE_ROLL = 0.55;      // fraction of max lateral speed that turns a jump into a roll
+const GRAB_MAX   = 2.0;       // seconds of grab that still scores
 const BOOST_MUL   = 1.15;
 const BOOST_TIME  = 2.0;
 
@@ -338,8 +346,9 @@ const LOG_R   = 0.44;         // downed log you grind along
 const LOG_LEN = 16;
 const LOG_H   = 0.92;         // grind surface above the snow
 const GRIND_LINK = 0.25;      // seconds of grind per chain link
-const HOP_RANGE   = 20;       // metres ahead a log will capture a jump
-const HOP_LATERAL = 8;        // how far off the log's line the assist still fires
+const HOP_RANGE   = 14;       // metres ahead a log will capture a jump
+const HOP_LATERAL = 2.6;      // ~a board and a half off the line, not eight metres
+const HOP_TAP     = 0.16;     // release inside this and the jump was a hop, not a trick
 const HOP_VY_MAX  = 20;       // ceiling on the solved hop, so it stays a hop
 
 const DAY_LEN = 240;          // 4 minute cycle
@@ -1353,9 +1362,9 @@ const rig = {};
 
 let rCrouch = 0.78, rTwist = 0, rLean = 0, rScarf = 0;
 
-function poseRider(dt, turn, air, compressAmt) {
+function poseRider(dt, turn, air, compressAmt, grab) {
   // deeper on landing compression, taller and tucked in the air
-  const crouchT = 0.78 - compressAmt * 0.20 + (air ? 0.06 : 0) - Math.abs(turn) * 0.05;
+  const crouchT = 0.78 - compressAmt * 0.20 + (air ? 0.06 : 0) - Math.abs(turn) * 0.05 - (grab || 0) * 0.22;
   rCrouch = damp(rCrouch, crouchT, 9, dt);
   rTwist = damp(rTwist, 0.34 - turn * 0.42, 7, dt);
   rLean = damp(rLean, 0.05 + turn * 0.22, 7, dt);
@@ -1370,8 +1379,10 @@ function poseRider(dt, turn, air, compressAmt) {
   ik2(rig.hipF, rig.kneeF, -0.02, dy, -STANCE - 0.03 + 0.12, THIGH, SHIN);
   ik2(rig.hipR, rig.kneeR, -0.02, dy,  STANCE - 0.03 - 0.12, THIGH, SHIN);
 
-  const swing = turn * 0.55, tuck = air ? 0.55 : 0;
-  rig.shF.rotation.set(-0.30 + swing - tuck, 0.10, -0.62 + tuck * 0.5);
+  const g = grab || 0;
+  const swing = turn * 0.55, tuck = (air ? 0.55 : 0) + g * 0.7;
+  // reaching down for the board on a grab
+  rig.shF.rotation.set(-0.30 + swing - tuck + g * 0.9, 0.10, -0.62 + tuck * 0.5 - g * 0.5);
   rig.shR.rotation.set(0.55 - swing - tuck * 0.6, -0.10, 0.70 - tuck * 0.4);
   rig.elF.rotation.set(-0.45 - tuck * 0.7, 0, -0.20);
   rig.elR.rotation.set(-0.55 - tuck * 0.7, 0, 0.20);
@@ -1782,6 +1793,7 @@ function thud(power) {
 /* ====================================================================== */
 
 let steerL = false, steerR = false, jumpHeld = false;
+let upHeld = false, downHeld = false, touchDir = 0;
 let touchSteer = false, tiltOn = false, gotTilt = false, sawTouch = false, motionArmed = false;
 let tiltRaw = 0, tiltBase = null, needBaseline = false, tiltAngle = 0;
 let tiltSettle = 0;   // while > 0 the neutral is still being learned, so don't steer
@@ -1793,11 +1805,14 @@ function onKey(e, down) {
   if (k === 'KeyA' || k === 'ArrowLeft') { steerL = down; e.preventDefault(); }
   else if (k === 'KeyD' || k === 'ArrowRight') { steerR = down; e.preventDefault(); }
   else if (k === 'Space') { if (down && !jumpHeld) jumpPressed = true; jumpHeld = down; e.preventDefault(); }
+  else if (k === 'KeyW' || k === 'ArrowUp') { upHeld = down; e.preventDefault(); }
+  else if (k === 'KeyS' || k === 'ArrowDown') { downHeld = down; e.preventDefault(); }
 }
 window.addEventListener('keydown', e => { if (!e.repeat) onKey(e, true); }, { passive: false });
 window.addEventListener('keyup', e => onKey(e, false), { passive: false });
 function clearInput() {
   steerL = steerR = jumpHeld = jumpPressed = false;
+  upHeld = downHeld = false; touchDir = 0;
   activeTouches.clear();
   touchSteerInput = 0;
 }
@@ -1809,10 +1824,16 @@ window.addEventListener('blur', clearInput);
 // jumping and the game felt dead. Now a touch is a jump until it is dragged.
 const TOUCH_DRAG = 16;          // px of movement before a touch becomes a steer
 
+const TOUCH_DIR = 22;           // px of vertical slide that counts as up/down
+
 function recomputeTouch() {
   if (state === 'ride' && activeTouches.size >= 2) { pauseGame(); return; }
-  let steer = 0, jump = false, steering = false;
+  let steer = 0, jump = false, steering = false, dir = 0;
   activeTouches.forEach(t => {
+    if (!t.steering) {
+      const dy = t.y - t.y0;
+      if (dy < -TOUCH_DIR) dir = 1; else if (dy > TOUCH_DIR) dir = -1;
+    }
     if (t.steering) {
       const half = viewportW() * 0.5;
       steer += clamp((t.x - half) / (half * 0.62), -1, 1);
@@ -1820,6 +1841,7 @@ function recomputeTouch() {
     } else jump = true;
   });
   touchSteerInput = steering ? clamp(steer, -1, 1) : 0;
+  touchDir = dir;
   if (jump && !jumpHeld) jumpPressed = true;
   jumpHeld = jump;
 }
@@ -2107,6 +2129,7 @@ function updateWeather(dt) {
 const GHOST_STEP = 12;             // metres between samples (8 made a 6-rider link ~3.9KB)
 const GHOST_MAX  = 440;            // ~5km of run
 const GHOST_SPAN = 72;             // +-x encoded across 7 bits
+const TRAIL_LIFT = 0.30;           // clears the terrain triangulation in hollows
 
 const rec = new Uint8Array(GHOST_MAX);
 let recN = 0, recAcc = 0;
@@ -2201,6 +2224,69 @@ function buildShareURL() {
   return location.origin + location.pathname + '#' + parts.join('&');
 }
 
+/* ------------------------------ yard sale ------------------------------ */
+
+/* Gear strewn where someone went down. Purely cosmetic and never collidable —
+   being punished twice by your own wreckage would be miserable. Placed at the
+   end of every ghost line, and at your own crashes so a re-ride shows where you
+   fell last time. */
+const YARD_PER = 7, YARD_MAX = 14 * YARD_PER;
+const yardMesh = new THREE.InstancedMesh(
+  mergeGeos([
+    tinted(new THREE.BoxGeometry(0.30, 0.09, 0.90), 0x1d2431),   // a board
+    (() => { const g = new THREE.BoxGeometry(0.20, 0.16, 0.22); g.translate(1.1, 0, 0.4); return tinted(g, 0xff5a3c); })(),
+    (() => { const g = new THREE.SphereGeometry(0.13, 6, 5);     g.translate(-0.9, 0, 0.7); return tinted(g, 0x262c3a); })(),
+    (() => { const g = new THREE.BoxGeometry(0.26, 0.09, 0.11);  g.translate(0.5, 0, -1.0); return tinted(g, 0x5a6780); })(),
+    (() => { const g = new THREE.BoxGeometry(0.17, 0.13, 0.19);  g.translate(-1.2, 0, -0.6); return tinted(g, 0xff5a3c); })()
+  ]),
+  propMat, YARD_MAX);
+yardMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+yardMesh.frustumCulled = false;
+scene.add(yardMesh);
+
+let yardN = 0;
+const yardSites = [];            // crash points on this mountain, survives a re-ride
+
+function yardClear() { yardN = 0; yardSites.length = 0; yardWrite(); }
+
+function yardWrite() {
+  for (let i = 0; i < YARD_MAX; i++) {
+    if (i < yardN) continue;
+    yardMesh.setMatrixAt(i, HIDDEN);
+  }
+  yardMesh.instanceMatrix.needsUpdate = true;
+}
+
+function yardDrop(cx, cz) {
+  if (yardN + YARD_PER > YARD_MAX) return;
+  const rnd = mulberry32((runSeed ^ (cx * 733 | 0) ^ (cz * 977 | 0)) | 0);
+  for (let i = 0; i < YARD_PER; i++) {
+    const a = rnd() * 6.283, r = 0.6 + rnd() * 3.4;
+    const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r * 1.4;
+    _v3.set(x, terrainHeight(x, z) + 0.06, z);
+    _euler.set(rnd() * 0.5 - 0.25, rnd() * 6.283, rnd() * 0.5 - 0.25);
+    _q.setFromEuler(_euler);
+    const sc = 0.55 + rnd() * 0.5;
+    _v3b.set(sc, sc, sc);
+    _m4.compose(_v3, _q, _v3b);
+    yardMesh.setMatrixAt(yardN++, _m4);
+  }
+  yardWrite();
+}
+
+function yardRebuild() {
+  yardN = 0;
+  for (const g of ghosts) {
+    const n = g.bytes.length;
+    if (n < 2) continue;
+    const b = g.bytes[n - 1];
+    const x = (b & 127) / 127 * (GHOST_SPAN * 2) - GHOST_SPAN;
+    yardDrop(x, -25 - (n - 1) * GHOST_STEP);     // a ghost's line ends where it went down
+  }
+  for (const p of yardSites) yardDrop(p.x, p.z);
+  yardWrite();
+}
+
 /* --------------------------- drawing ghosts ---------------------------- */
 
 const ghostGroup = new THREE.Group();
@@ -2236,7 +2322,12 @@ function buildGhostMesh(g) {
     const x = (b & 127) / 127 * (GHOST_SPAN * 2) - GHOST_SPAN;
     const air = (b & 128) !== 0;
     const z = -25 - i * GHOST_STEP;
-    const y = terrainHeight(x, z) + 0.05;
+    // The snow you see is a 2m triangulation of the height function. Across a
+    // hollow the flat triangle sits ABOVE the true surface, so a line drawn at
+    // the analytic height vanishes under the mesh. Take the local maximum and
+    // lift clear of it.
+    const y = Math.max(terrainHeight(x, z), terrainHeight(x, z + 2), terrainHeight(x, z - 2),
+                       terrainHeight(x - 2, z), terrainHeight(x + 2, z)) + TRAIL_LIFT;
     pos[i * 6]     = x - W; pos[i * 6 + 1] = y; pos[i * 6 + 2] = z;
     pos[i * 6 + 3] = x + W; pos[i * 6 + 4] = y; pos[i * 6 + 5] = z;
     // airborne samples leave a gap, so a ghost's jumps read in its line
@@ -2282,10 +2373,13 @@ let grounded = true, flipRot = 0, rollRot = 0, spinAxis = 0;
 let jumpPressed = false, compress = 0;
 let runBestScore = 0, runBestDist = 0;
 let chain = 0;                    // links banked on the next clean landing
+let trickType = T_GRAB, grabT = 0, grabBanked = 0;
+const trickLog = [];              // recent trick types, for the variety bonus
 let grinding = false, grindX = 0, grindEndZ = 0, grindAcc = 0;
 let springT = 0;                  // brief pass-through so one obstacle cannot bounce you twice
 let steerFromTilt = false;
 let hopX = 0, hopT = 0;           // gentle lateral aim while hopping onto a log
+let hopArmed = 0, hopAimX = 0, hopAimZ = 0;
 let armedSpin = 0, armedT = 0;   // spin axis of the kicker you were last on
 const MAX_CONTINUES = 3;
 let continuesLeft = MAX_CONTINUES, runBestMult = 1;
@@ -2333,8 +2427,10 @@ function doCrash() {
   crashT = 1.15;
   shake = Math.min(0.65, 0.30 + fwd * 0.006);
   hitFlash = 0.55;
-  chain = 0;
+  chain = 0; grabT = 0; grabBanked = 0; trickType = T_GRAB;
   grinding = false;
+  yardSites.push({ x: player.position.x, z: player.position.z });
+  yardDrop(player.position.x, player.position.z);
   burst(isTouch ? 26 : 48, 7);
   thud(1.35);
   saveBest();
@@ -2469,6 +2565,7 @@ function startMountain(seed) {
   camLagX = 0; camLagY = player.position.y + 5; camLagZ = player.position.z + 10;
   camTgtX = 0; camTgtY = player.position.y + 1.2; camTgtZ = player.position.z - 12;
   rebuildGhosts();
+  yardRebuild();
 }
 
 function newRun() {
@@ -2501,10 +2598,22 @@ function springOff(up, power) {
   thud(0.30 + power * 0.4);
 }
 
+// Repeating a trick pays less each time; mixing them pays more. Keeps the last
+// few landings in mind rather than the whole run, so a run can recover.
+function trickPayout(type) {
+  let rep = 0;
+  for (let i = trickLog.length - 1; i >= 0 && trickLog[i] === type; i--) rep++;
+  const recent = trickLog.slice(-4);
+  let distinct = 1;
+  for (const t of [T_GRAB, T_FRONT, T_BACK, T_ROLL]) if (t !== type && recent.indexOf(t) >= 0) distinct++;
+  return (1 + 0.30 * (distinct - 1)) / (1 + 0.9 * rep);
+}
+
 function land(impactVy) {
   const wrap = a => { a %= 360; if (a > 180) a -= 360; else if (a < -180) a += 360; return a; };
   const offPitch = wrap(flipRot), offRoll = wrap(rollRot);
-  const flips = Math.round(flipRot / 360), rolls = Math.round(Math.abs(rollRot) / 360);
+  const flipRotAtLanding = flipRot;
+  const flips = Math.round(Math.abs(flipRot) / 360), rolls = Math.round(Math.abs(rollRot) / 360);
 
   if (Math.abs(offPitch) > LAND_TOL || Math.abs(offRoll) > ROLL_TOL) {
     flipRot = 0; rollRot = 0; spinAxis = 0;
@@ -2514,7 +2623,8 @@ function land(impactVy) {
 
   grounded = true;
   vy = 0;
-  flipRot = 0; rollRot = 0; spinAxis = 0;
+  if (grabT > 0) { grabT = 0; }        // still grabbing at touchdown banks nothing
+  flipRot = 0; rollRot = 0; spinAxis = 0; trickType = T_GRAB;
   boostT = BOOST_TIME;
   const power = clamp(Math.abs(impactVy) / 22, 0.2, 1.2);
   compress = Math.min(1, 0.35 + power);
@@ -2522,22 +2632,31 @@ function land(impactVy) {
   thud(0.45 + power * 0.8);
   burst(isTouch ? 10 : 20, 3 + power * 4);
 
-  const tricks = flips + rolls * 2 + chain;   // rolls are worth more; chain links stack
-  if (tricks >= 1) {
-    mult = Math.min(9, mult + tricks);
+  // what did they actually land?
+  let value = 0, kind = -1;
+  if (flips >= 1) { value += flips * 260; kind = flipRotAtLanding < 0 ? T_FRONT : T_BACK; }
+  if (rolls >= 1) { value += rolls * 520; kind = T_ROLL; }
+  if (grabBanked > 0) { value += grabBanked * 190; if (kind < 0) kind = T_GRAB; }
+  value += chain * 260;
+
+  if (value > 0) {
+    const variety = kind >= 0 ? trickPayout(kind) : 1;
+    mult = Math.min(9, mult + flips + rolls * 2 + chain + (grabBanked > 0 ? 1 : 0));
     runBestMult = Math.max(runBestMult, mult);
     // a longer chain is worth more per link, not just more links
-    score += tricks * 260 * mult * (1 + chain * 0.35);
+    score += value * mult * variety * (1 + chain * 0.35);
     slowT = 0.42;
     el.mult.classList.add('on');
+    if (kind >= 0) { trickLog.push(kind); if (trickLog.length > 8) trickLog.shift(); }
   }
   chain = 0;
+  grabBanked = 0; grabT = 0;
 }
 
 function respawn() {
   state = 'ride';
   el.crash.classList.remove('on');
-  vx = 0; vy = 0; flipRot = 0; rollRot = 0; spinAxis = 0; boostT = 0; compress = 0; chain = 0; springT = 0; hopT = 0;
+  vx = 0; vy = 0; flipRot = 0; rollRot = 0; spinAxis = 0; boostT = 0; compress = 0; chain = 0; springT = 0; hopT = 0; hopArmed = 0;
   grinding = false; grindAcc = 0;
   survivalT = 0; mult = 1;
   graceT = 0.9;   // respawning inside the tree you just hit is not a death you can avoid
@@ -2683,21 +2802,17 @@ function simulate(dt) {
     // surface velocity you already carry, so timing the lip is the whole skill.
     if (state === 'ride' && jumpPressed) {
       grounded = false;
-      spinAxis = armedT > 0 ? armedSpin : 0;
-      if (logAhead(px, pz)) {
-        // Aim the hop at the log instead of throwing a full jump: solve the
-        // vertical speed that puts the rider on the deck as they reach it.
-        // Aim a quarter of the way along the deck, not at the very tip — landing
-        // on the near edge leaves no margin either side.
-        const aimZ = _hopZ - LOG_LEN * 0.28;
-        const t = clamp((pz - aimZ) / Math.max(fwd, 1), 0.14, 1.3);
-        const target = terrainHeight(_hopX, aimZ) + LOG_H;
-        vy = clamp((target - player.position.y - 0.5 * GRAVITY * t * t) / t, JUMP_POP * 0.35, HOP_VY_MAX);
-        hopX = _hopX;
-        hopT = t + 0.35;                       // lateral help only until it lands
-      } else {
-        vy = Math.max(vy, 0) + JUMP_POP;
-      }
+      // Carve hard into a takeoff and the spin axis becomes roll — you are
+      // already banked, so a corkscrew is the natural continuation.
+      spinAxis = Math.abs(vx) > STEER_MAX * CARVE_ROLL ? Math.sign(vx)
+               : (armedT > 0 ? armedSpin : 0);
+      vy = Math.max(vy, 0) + JUMP_POP;
+      // Hold means you want a trick, tap means you want the log. We cannot know
+      // which at the instant of the press, and delaying the jump to find out
+      // would put latency on every jump in the game — so take off normally and
+      // retarget on an early release, when only ~150ms has passed.
+      hopArmed = logAhead(px, pz) ? HOP_TAP : 0;
+      hopAimX = _hopX; hopAimZ = _hopZ;
       whoosh();
       burst(isTouch ? 6 : 12, 2.5);
     } else if (state === 'ride') {
@@ -2707,17 +2822,45 @@ function simulate(dt) {
       const arc = gy + vy * LA + 0.5 * GRAVITY * LA * LA;
       if (arc > groundAt(ax, az) + 0.28) {
         grounded = false;
-        spinAxis = armedT > 0 ? armedSpin : 0;
+        spinAxis = Math.abs(vx) > STEER_MAX * CARVE_ROLL ? Math.sign(vx)
+                 : (armedT > 0 ? armedSpin : 0);
       }
     }
   } else {
     vy += GRAVITY * dt;
     player.position.y += vy * dt;
-    // Holding rotates; releasing eases to the nearest whole turn.
+    // A tap near a log converts the jump into a hop onto it; holding does not,
+    // so a log beside a jump can no longer steal the jump.
+    if (hopArmed > 0) {
+      hopArmed -= dt;
+      if (!jumpHeld) {
+        const aimZ = hopAimZ - LOG_LEN * 0.28;
+        const t = clamp((pz - aimZ) / Math.max(fwd, 1), 0.14, 1.3);
+        const target = terrainHeight(hopAimX, aimZ) + LOG_H;
+        vy = clamp((target - player.position.y - 0.5 * GRAVITY * t * t) / t, JUMP_POP * 0.35, HOP_VY_MAX);
+        hopX = hopAimX;
+        hopT = t + 0.30;
+        hopArmed = 0;
+      }
+    }
+
+    // Holding rotates; releasing eases toward a whole turn.
     if (state === 'ride' && jumpHeld) {
-      if (spinAxis === 0) flipRot += FLIP_RATE * dt;
-      else rollRot += spinAxis * ROLL_RATE * dt;
+      // The trick stays switchable until it actually commits to rotating, so you
+      // can start a grab and convert it into a flip mid-flight.
+      if (Math.abs(flipRot) < 1 && Math.abs(rollRot) < 1) {
+        const dir = (upHeld ? 1 : 0) - (downHeld ? 1 : 0) + touchDir;
+        if (dir > 0) trickType = T_FRONT;
+        else if (dir < 0) trickType = T_BACK;
+        else if (spinAxis !== 0) trickType = T_ROLL;
+        else trickType = T_GRAB;
+      }
+      if (trickType === T_FRONT) flipRot -= FLIP_RATE * dt;
+      else if (trickType === T_BACK) flipRot += FLIP_RATE * dt;
+      else if (trickType === T_ROLL) rollRot += (spinAxis || 1) * ROLL_RATE * dt;
+      else grabT += dt;
     } else if (state === 'ride') {
+      if (grabT > 0) { grabBanked = Math.min(grabT, GRAB_MAX); grabT = 0; }
       flipRot = settleSpin(flipRot, dt);
       rollRot = settleSpin(rollRot, dt);
     }
@@ -2729,7 +2872,7 @@ function simulate(dt) {
         if (state === 'ride') land(vy); else { grounded = true; vy = 0; }
       }
     } else if (state === 'ride' && vy <= 0 && player.position.y <= logY + 0.75 &&
-               player.position.y > logY - 2.4 && logUnder(px, pz, LOG_R + 2.4)) {
+               player.position.y > logY - 1.8 && logUnder(px, pz, LOG_R + 1.15)) {
       // dropped onto a log — start grinding
       grinding = true;
       grindX = _logX;
@@ -2800,8 +2943,18 @@ function simulate(dt) {
 // mid-spin leaves you at an angle that is neither upright nor a completed trick,
 // which made every hold longer than ~90ms an unavoidable crash. Past a half turn
 // it carries you round to a full one; under that it straightens you up.
+// The first rotation settles from halfway, as before. Every rotation after has
+// to be nearly complete, so a double is earned rather than rounded up to.
+function settleTarget(a) {
+  const turns = Math.abs(a) / 360;
+  const base = Math.floor(turns);
+  const frac = turns - base;
+  const n = frac >= (base === 0 ? 0.5 : 0.8) ? base + 1 : base;
+  return Math.sign(a) * n * 360;
+}
+
 function settleSpin(a, dt) {
-  const target = Math.round(a / 360) * 360;
+  const target = settleTarget(a);
   const d = target - a;
   const ad = Math.abs(d);
   if (ad < 0.5) return target;
@@ -2828,7 +2981,7 @@ function poseBoard(dt) {
     flip.rotation.x += 7.2 * dt;
     bank.rotation.z += 4.4 * dt;
     compress = Math.min(1, compress + dt * 2.5);
-    poseRider(dt, 0, false, compress);
+    poseRider(dt, 0, false, compress, 0);
     return;
   }
 
@@ -2838,7 +2991,7 @@ function poseBoard(dt) {
   flip.rotation.x = -flipRot * Math.PI / 180;
 
   compress = Math.max(0, compress - dt * 3.2);
-  poseRider(dt, clamp(vx / STEER_MAX, -1, 1), !grounded, compress);
+  poseRider(dt, clamp(vx / STEER_MAX, -1, 1), !grounded, compress, clamp(grabT * 3, 0, 1));
 
   if (grounded) terrainNormal(player.position.x, player.position.z, _norm);
   else _norm.copy(_up);
@@ -2925,10 +3078,12 @@ function updateTrail(dt) {
   const base = (TRAIL_N - 1) * 2;
 
   trailPos[base * 3]     = lx - trailOrigin.x;
-  trailPos[base * 3 + 1] = terrainHeight(lx, lz) + 0.06 - trailOrigin.y;
+  trailPos[base * 3 + 1] = Math.max(terrainHeight(lx, lz), terrainHeight(lx, lz + 2),
+                                    terrainHeight(lx, lz - 2)) + TRAIL_LIFT * 0.6 - trailOrigin.y;
   trailPos[base * 3 + 2] = lz - trailOrigin.z;
   trailPos[(base + 1) * 3]     = rx - trailOrigin.x;
-  trailPos[(base + 1) * 3 + 1] = terrainHeight(rx, rz) + 0.06 - trailOrigin.y;
+  trailPos[(base + 1) * 3 + 1] = Math.max(terrainHeight(rx, rz), terrainHeight(rx, rz + 2),
+                                          terrainHeight(rx, rz - 2)) + TRAIL_LIFT * 0.6 - trailOrigin.y;
   trailPos[(base + 1) * 3 + 2] = rz - trailOrigin.z;
   trailA[base] = lay ? 1 : 0;
   trailA[base + 1] = lay ? 1 : 0;
@@ -3235,6 +3390,7 @@ bindBtn(el.btnResume, resumeGame);
 bindBtn(el.btnShare, shareMountain);
 bindBtn(el.btnNew, () => {
   ghosts = [];
+  yardClear();
   location.hash = '';
   startMountain((Math.random() * 0xffffffff) >>> 0);
   newRun();
