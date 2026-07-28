@@ -78,6 +78,17 @@ control models coexist deliberately.
 
 Shaping (below) sits on top of that signal.
 
+### Neutral must be relearned, never snapshotted
+
+`respawn()` used to capture the tilt baseline on the next sensor event. On a
+device streaming at 60Hz that is ~16ms after the player's thumb leaves the
+continue button — while the phone is still tilted from reaching for it — so that
+angle became "flat" and every continue veered hard to one side.
+
+`tiltSettle` keeps relearning neutral while any panel is up and for 0.6s after
+resuming, and suppresses steering until it settles. It ticks on **raw** time, so
+it still runs while the simulation is paused.
+
 ### Shaping
 
 Raw `gamma` is jittery, and a linear ramp turned that jitter into hard carves.
