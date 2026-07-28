@@ -121,3 +121,19 @@ files: README.md
 ### 20:07 — 9a960b7
 Demote the "nothing was drawn" hook
 files: README.md
+
+### 20:21 — aa802f9
+Spec: shared mountains
+files: knowledge/journal/2026-07-27-music-and-dismount.md, knowledge/plans/2026-07-27-shared-mountains-design.md, knowledge/plans/index.md
+
+### 20:28 — 0998ca2
+Seeded mountains
+files: index.html
+
+### 20:32 — 24cb321
+Clear start lane, restart at the top, and the ghost codec
+files: index.html
+
+### 20:40 — fe54ab3
+Ghost trails, shareable mountains, weather-driven music
+files: index.html

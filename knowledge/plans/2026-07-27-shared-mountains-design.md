@@ -2,7 +2,7 @@
 type: Plan
 date: 2026-07-27
 description: Seeded mountains you can share by URL, carrying up to six riders' ghost tracks with no server, plus a top-5 ladder and weather-driven music.
-status: approved
+status: built
 deciders: Tucker
 related: [[terrain]], [[wiki/audio]], [[decisions/2026-07-26-single-file-cdn-three]]
 ---
@@ -76,7 +76,9 @@ leaderboard.
 
 ## 2. Recording a ghost
 
-Sample every `GHOST_STEP` (8m) of distance travelled:
+Sample every `GHOST_STEP` of distance travelled. **Built at 12m, not the 8m
+estimated here** — measurement put six riders at 3.9KB on 8m, past the point a
+URL is pasteable:
 
 - lateral `x`, quantised to 7 bits over the ±70 playfield (~1.1m resolution)
 - 1 bit: airborne
@@ -98,7 +100,7 @@ Quantisation stepping is smoothed at render time by interpolating the polyline;
 
 Each rider: `<score base36>.<base64url of the sample bytes>`
 
-~250 bytes per 1,700m run → ~330 chars base64. Six riders ≈ 2KB.
+**Measured:** six riders on a 2400m run is 1.65KB at a 12m step.
 
 On load: parse the fragment, adopt the seed, decode ghosts. No fragment means a
 fresh random seed and no ghosts.

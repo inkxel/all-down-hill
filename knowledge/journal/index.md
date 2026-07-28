@@ -14,5 +14,6 @@ date: 2026-07-27
 | [[2026-07-27-landing-fix]] — Landing fix — the rotation dead zone | Root-caused "landings are too precise" to a systemic dead zone where any hold past 90ms guaranteed a crash; fixed with a settle-to-nearest-turn assist. |
 | [[2026-07-27-mobile-and-ramps]] — Mobile rescue + ramps switched off | Disabled ramp placement without deleting the machinery; found and fixed three separate reasons mobile was non-functional on iPhone. |
 | [[2026-07-27-music-and-dismount]] — Music + grind dismount | Made both grind dismounts safe with the jump paying more, removed the trick chime, and added a reactive generative music bed. |
+| [[2026-07-27-shared-mountains]] — Shared mountains | Built the shared mountains arc — seeded terrain, ghost tracks carried in the URL, a top-5 ladder, a guaranteed clear start lane, and weather-driven music. |
 | [[2026-07-27-tilt-and-hop]] — Tilt, hop assist, README | Fixed tilt steering at the signal and control-model level, added a log hop assist, and rewrote the README as a game intro. |
 | [[2026-07-27-trick-chain]] — Trick chain + grinds | Added rock bounces, tree-crown springs and grindable logs feeding a trick chain; platform-appropriate crash prompt. |
