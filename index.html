@@ -1641,7 +1641,49 @@ function updateMusic(raw, spdT, turn) {
 }
 
 
+/* iOS silences Web Audio with the ring/silent switch — HTML5 media elements are
+   allowed through it, Web Audio is not, which is why the game was mute on a phone
+   whose switch was flipped. Two fixes, applied together:
+     1. navigator.audioSession.type = 'playback' (Safari 16.4+), the standards-
+        based route the W3C Media WG is landing.
+     2. the established fallback: keep a looping silent media element playing,
+        which promotes the audio session out of the 'ambient' category.
+   Same technique as swevans/unmute and feross/unmute-ios-audio, built here rather
+   than pulled in, since the game ships one file with no assets — so the silent
+   clip is generated rather than embedded.                                     */
+let silentEl = null;
+
+function silentWavURL() {
+  const rate = 8000, n = 400;                    // 50ms of true silence
+  const total = 44 + n * 2;
+  const buf = new ArrayBuffer(total), v = new DataView(buf);
+  const tag = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+  tag(0, 'RIFF');  v.setUint32(4, total - 8, true);
+  tag(8, 'WAVEfmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
+  v.setUint16(32, 2, true);  v.setUint16(34, 16, true);
+  tag(36, 'data'); v.setUint32(40, n * 2, true);  // samples are already zero
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+}
+
+function unmuteIOS() {
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { /* not supported */ }
+  if (!silentEl) {
+    silentEl = document.createElement('audio');
+    silentEl.src = silentWavURL();
+    silentEl.loop = true;
+    silentEl.setAttribute('playsinline', '');
+    silentEl.setAttribute('aria-hidden', 'true');
+    silentEl.style.display = 'none';
+    document.body.appendChild(silentEl);   // detached elements don't reliably
+  }                                        // promote the iOS audio session
+  const play = silentEl.play();
+  if (play && play.catch) play.catch(() => { /* blocked until a gesture; retried on the next one */ });
+}
+
 function initAudio() {
+  unmuteIOS();
   if (actx) { if (actx.state === 'suspended') actx.resume(); return; }
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!AC) return;
@@ -3014,6 +3056,7 @@ window.addEventListener('touchstart', startGame, { passive: true });
 window.addEventListener('touchend', () => {
   if (!motionArmed) { motionArmed = true; setupMotion(); }
   initAudio();
+  if (actx && actx.state !== 'running') actx.resume();
 }, { passive: true });
 
 window.addEventListener('pagehide', saveBest);
