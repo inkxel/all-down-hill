@@ -190,6 +190,12 @@
   </div>
 </div></div>
 
+<div id="pause" class="veil layer"><div class="panel">
+  <p class="ptitle">Paused</p>
+  <p class="pq" id="pauseHint">Press ENTER to resume</p>
+  <div class="prow"><button class="btn" id="btnResume">Resume</button></div>
+</div></div>
+
 <div id="board" class="veil layer"><div class="panel">
   <p class="ptitle">Best runs</p>
   <ol id="lbList"></ol>
@@ -358,6 +364,9 @@ const el = {
   wQ:     document.getElementById('wQ'),
   btnY:   document.getElementById('btnY'),
   btnN:   document.getElementById('btnN'),
+  pause:  document.getElementById('pause'),
+  pauseHint: document.getElementById('pauseHint'),
+  btnResume: document.getElementById('btnResume'),
   board:  document.getElementById('board'),
   lbList: document.getElementById('lbList'),
   btnAgain: document.getElementById('btnAgain'),
@@ -1510,10 +1519,11 @@ let windGain = null, windFilt = null, carveGain = null, carveFilt = null;
    it's raw WebAudio, which also lets the music share the graph the wind and
    carve already live on and react to them.                                  */
 
-const MUSIC_GAIN  = 0.17;     // deliberately under the wind and the board
+const MUSIC_GAIN  = 0.30;     // under the wind and the board, but audible
 const PENTA       = [0, 3, 5, 7, 10];        // minor pentatonic — never sours
 const KEYS        = [55.00, 61.74, 49.00, 58.27, 65.41];   // A1 B1 G1 Bb1 C2
 let musicBus = null, musicGain = null, padFilter = null, padOscs = null, revSend = null;
+let padPulse = null, padLFO = null;
 let noteAcc = 0, nextNote = 2, chordAcc = 0, keyIdx = 0, musicDuck = 1;
 
 // Procedural impulse response — noise with an exponential tail.
@@ -1543,11 +1553,25 @@ function initMusic() {
   // Pad: three detuned voices holding a chord, filter opening with speed.
   padFilter = actx.createBiquadFilter();
   padFilter.type = 'lowpass'; padFilter.frequency.value = 380; padFilter.Q.value = 4;
-  padFilter.connect(musicBus); padFilter.connect(rev);
 
+  // The pad breathes, and the breathing gets faster as you do. Note density
+  // alone was too subtle to read as "the music is reacting to me".
+  padPulse = actx.createGain(); padPulse.gain.value = 0.68;
+  padFilter.connect(padPulse);
+  padPulse.connect(musicBus); padPulse.connect(rev);
+
+  padLFO = actx.createOscillator();
+  padLFO.type = 'sine'; padLFO.frequency.value = 0.55;
+  const lfoDepth = actx.createGain(); lfoDepth.gain.value = 0.30;
+  padLFO.connect(lfoDepth); lfoDepth.connect(padPulse.gain);
+  padLFO.start();
+
+  // Oscillators start high and glide down into the first chord — the descending
+  // swoop you hear on the first note is intentional, not a default 440 artefact.
   padOscs = [];
   for (let i = 0; i < 3; i++) {
     const o = actx.createOscillator();
+    o.frequency.value = 520 - i * 60;
     o.type = i === 2 ? 'sine' : 'triangle';
     o.detune.value = (i - 1) * 7;
     const g = actx.createGain();
@@ -1581,7 +1605,7 @@ function playNote(spdT) {
   o.type = Math.random() < 0.5 ? 'sine' : 'triangle';
   o.frequency.value = f;
   const g = actx.createGain();
-  const peak = 0.16 * (0.6 + spdT * 0.5);
+  const peak = 0.26 * (0.6 + spdT * 0.5);
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(peak, t + 0.05);
   g.gain.exponentialRampToValueAtTime(0.0001, t + 3.4);
@@ -1594,12 +1618,14 @@ function updateMusic(raw, spdT, turn) {
 
   // Speed opens the pad and thickens the note density; carving bends the filter,
   // so the board is playing the pad rather than just sitting over it.
-  const cut = 300 + spdT * 1400 + Math.abs(turn) * 700;
-  padFilter.frequency.value = lerp(padFilter.frequency.value, cut, Math.min(1, raw * 3));
-  padFilter.Q.value = lerp(padFilter.Q.value, 4 + Math.abs(turn) * 7, Math.min(1, raw * 3));
+  const cut = 340 + spdT * 1500 + Math.abs(turn) * 2200;
+  padFilter.frequency.value = lerp(padFilter.frequency.value, cut, Math.min(1, raw * 4));
+  padFilter.Q.value = lerp(padFilter.Q.value, 3 + Math.abs(turn) * 7, Math.min(1, raw * 4));
+  padLFO.frequency.value = lerp(padLFO.frequency.value, 0.55 + spdT * 1.5, Math.min(1, raw * 2));
 
-  // Wind is loudest at speed, so duck the music under it — the mix stays wind-first.
-  const duckTo = state === 'crash' ? 0.25 : 1 - spdT * 0.28;
+  // Only a light duck — the previous 28% pulled the bed down exactly when you
+  // spend most of your time, which is why it kept vanishing.
+  const duckTo = state === 'crash' ? 0.35 : 1 - spdT * 0.10;
   musicDuck = lerp(musicDuck, duckTo, Math.min(1, raw * 2));
   musicGain.gain.value = MUSIC_GAIN * musicDuck;
 
@@ -1718,6 +1744,7 @@ window.addEventListener('blur', clearInput);
 const TOUCH_DRAG = 16;          // px of movement before a touch becomes a steer
 
 function recomputeTouch() {
+  if (state === 'ride' && activeTouches.size >= 2) { pauseGame(); return; }
   let steer = 0, jump = false, steering = false;
   activeTouches.forEach(t => {
     if (t.steering) {
@@ -2130,6 +2157,23 @@ function renderBoard() {
     li.appendChild(rk); li.appendChild(sc); li.appendChild(ds);
     el.lbList.appendChild(li);
   }
+}
+
+function pauseGame() {
+  if (state !== 'ride') return;
+  state = 'paused';
+  clearInput();
+  el.pauseHint.textContent = usingTouch() ? 'Tap to resume' : 'Press ENTER to resume';
+  el.pause.classList.add('on');
+}
+
+function resumeGame() {
+  if (state !== 'paused') return;
+  el.pause.classList.remove('on');
+  clearInput();
+  if (tiltOn) { needBaseline = true; tiltSettle = 0.6; }   // they may have moved the phone
+  graceT = Math.max(graceT, 0.4);
+  state = 'ride';
 }
 
 function newRun() {
@@ -2729,7 +2773,7 @@ function frame(now) {
 
   if (state === 'title') {
     drawTitle(realT, raw);
-  } else {
+  } else if (state !== 'paused') {
     dayT = (dayT + raw / DAY_LEN) % 1;
   }
 
@@ -2739,7 +2783,7 @@ function frame(now) {
   } else {
     timeScale = damp(timeScale, 1, 5, raw);
   }
-  const paused = state === 'wiped' || state === 'board';
+  const paused = state === 'wiped' || state === 'board' || state === 'paused';
   const dt = paused ? 0 : raw * timeScale;
 
   if (state === 'crash') {
@@ -2884,9 +2928,17 @@ function bindBtn(btn, fn) {
 bindBtn(el.btnY, keepGoing);
 bindBtn(el.btnN, endRun);
 bindBtn(el.btnAgain, newRun);
+bindBtn(el.btnResume, resumeGame);
+el.pause.addEventListener('click', resumeGame);
+el.pause.addEventListener('touchend', e => { e.preventDefault(); resumeGame(); }, { passive: false });
 bindBtn(el.btnCard, saveCard);
 
 window.addEventListener('keydown', e => {
+  if (state === 'ride' && (e.code === 'Enter' || e.code === 'Escape')) { e.preventDefault(); pauseGame(); return; }
+  if (state === 'paused') {
+    if (e.code === 'Enter' || e.code === 'Escape' || e.code === 'Space') { e.preventDefault(); resumeGame(); }
+    return;
+  }
   if (state === 'wiped') {
     if (e.code === 'KeyY' || e.code === 'Enter' || e.code === 'Space') { e.preventDefault(); keepGoing(); }
     else if (e.code === 'KeyN' || e.code === 'Escape') { e.preventDefault(); endRun(); }
