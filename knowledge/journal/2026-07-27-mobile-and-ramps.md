@@ -117,3 +117,11 @@ files: knowledge/journal/2026-07-27-mobile-and-ramps.md, knowledge/wiki/roadmap.
 ### 17:23 — f68740f
 Mobile: tappable crash panel, calmer tilt, centred camera
 files: index.html
+
+### 17:24 — fd97146
+Document the second mobile pass
+files: knowledge/journal/2026-07-27-mobile-and-ramps.md, knowledge/wiki/mobile.md
+
+### 17:44 — 2710f50
+Trick stacking: rock bounces, tree-crown springs, grindable logs
+files: index.html

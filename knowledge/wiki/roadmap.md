@@ -13,6 +13,8 @@ The "not now, but don't forget" pile.
 - **`RIDER_SCALE = 1.15`** is a readability compromise, not a considered proportion. Real scale is 1.0.
 
 ## Known-soft
+- **Crown bands may be too generous.** Rock and tree crowns are deliberately forgiving; unplayed by a human yet.
+- **`chain` feeds `mult`, capped at 9**, so long chains saturate quickly. May need its own scale.
 - **Section rhythm is fixed-period (350 m).** A long session will feel the loop. Density ramping masks it; it doesn't solve it.
 - ~~**Barrel roll is hard to land.**~~ **Resolved 2026-07-27** — was systemic, not roll-specific: any hold past ~90 ms crashed on either axis. Fixed with a settle-to-nearest-turn assist. [[decisions/2026-07-27-spin-settle-assist]]
 - ~~Small kickers easy to miss~~ — moot while ramps are disabled.

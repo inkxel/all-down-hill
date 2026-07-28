@@ -79,10 +79,32 @@ of the edge taper was written as `smoothstep(adx, hw, hw * 0.62)`, which returne
 invisible in play because terrain rollers still launched you. If a ramp ever
 stops working, check that expression first.
 
+## Trick chain
+
+Obstacles clipped in the air launch instead of killing: rock crowns bounce, the
+top 26% of a pine springs. Each adds a link to `chain`, as does every 0.25s of
+grinding a log. The chain banks on a clean landing and is lost on a crash.
+
+**Height is tested as a band, not a point.** `hLo`..`hHi` is the range swept
+during the frame — at 42 u/s the rider crosses a crown inside one step, and an
+end-point test misses it and crashes instead of bouncing.
+
+**`springT` is a 0.28s pass-through after any launch.** Without it, contact
+persists across frames and a single rock compounds to 33 u/s. Do not remove it.
+
+Grinding is a third ground state alongside grounded and airborne: height, line
+and lateral drift all come from the log, and the only exit is a jump before
+`grindEndZ`.
+
 ## Context log
 
 ### 2026-07-27 — Article created
 State after the feel rework. [[journal/2026-07-27-feel-rework]]
+
+### 2026-07-27 — Trick chain added
+Obstacles became launchers; logs became grindable. Correction to the article as
+written above: it previously described any obstacle contact as a crash, which is
+now only true at snow level. [[journal/2026-07-27-trick-chain]]
 
 ### 2026-07-27 — Landing rewritten
 Rotation now settles to the nearest whole turn on release; tolerances widened to

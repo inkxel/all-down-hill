@@ -20,3 +20,4 @@ date: 2026-07-27
 | [[2026-07-27-section-based-pacing]] — Decision: Section-based pacing instead of uniform scatter | Props follow a repeating 350m rhythm — slalom, run-up, kickers, one feature, landing — instead of uniform random scatter. |
 | [[2026-07-27-spin-settle-assist]] — Decision: Ease a released spin to the nearest whole turn | A released spin eases to the nearest whole turn instead of freezing where it is; landing tolerances widen to 45/55 degrees. |
 | [[2026-07-27-three-continues-leaderboard]] — Decision: Three continues per run, then a leaderboard | Wiping out offers three continues per run that carry score and distance; running out ends the run to a local top-5 leaderboard with a JPEG card export. |
+| [[2026-07-27-trick-chain]] — Decision: Trick chain — obstacles as launchers, logs as grinds | Obstacles clipped in the air become launchers that link a trick chain, banked on the next clean landing; downed logs are grindable. |
