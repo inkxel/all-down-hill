@@ -201,6 +201,8 @@
   <ol id="lbList"></ol>
   <div class="prow">
     <button class="btn" id="btnAgain">Ride again</button>
+    <button class="btn" id="btnShare">Share this mountain</button>
+    <button class="btn dim" id="btnNew">New mountain</button>
     <button class="btn dim" id="btnCard">Save card</button>
   </div>
 </div></div>
@@ -381,7 +383,10 @@ const el = {
   board:  document.getElementById('board'),
   lbList: document.getElementById('lbList'),
   btnAgain: document.getElementById('btnAgain'),
-  btnCard:  document.getElementById('btnCard')
+  btnCard:  document.getElementById('btnCard'),
+  btnShare: document.getElementById('btnShare'),
+  btnNew:   document.getElementById('btnNew'),
+  lbTitle:  null
 };
 
 if (isTouch) el.prompt.textContent = 'Tap to start';
@@ -1635,7 +1640,9 @@ function updateMusic(raw, spdT, turn) {
 
   // Speed opens the pad and thickens the note density; carving bends the filter,
   // so the board is playing the pad rather than just sitting over it.
-  const cut = 340 + spdT * 1500 + Math.abs(turn) * 2200;
+  // Heavy weather closes the music down with the fog; clear skies open it back up.
+  const openness = 1 - wSnow * 0.55;
+  const cut = (340 + spdT * 1500 + Math.abs(turn) * 2200) * openness;
   padFilter.frequency.value = lerp(padFilter.frequency.value, cut, Math.min(1, raw * 4));
   padFilter.Q.value = lerp(padFilter.Q.value, 3 + Math.abs(turn) * 7, Math.min(1, raw * 4));
   padLFO.frequency.value = lerp(padLFO.frequency.value, 0.55 + spdT * 1.5, Math.min(1, raw * 2));
@@ -1652,7 +1659,7 @@ function updateMusic(raw, spdT, turn) {
   noteAcc += raw;
   if (noteAcc >= nextNote) {
     noteAcc = 0;
-    nextNote = lerp(3.2, 1.1, spdT) * (0.6 + Math.random() * 0.9);
+    nextNote = lerp(3.2, 1.1, spdT) * (0.6 + Math.random() * 0.9) * (1 + wSnow * 0.7);
     playNote(spdT);
   }
 }
@@ -2194,6 +2201,73 @@ function buildShareURL() {
   return location.origin + location.pathname + '#' + parts.join('&');
 }
 
+/* --------------------------- drawing ghosts ---------------------------- */
+
+const ghostGroup = new THREE.Group();
+ghostGroup.frustumCulled = false;
+scene.add(ghostGroup);
+
+const ghostMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, side: THREE.DoubleSide,
+  polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+  uniforms: { uColor: { value: new THREE.Color(0x7d93b8) }, uOp: { value: 0.44 } },
+  vertexShader: `
+    attribute float aAlpha; varying float vA;
+    void main(){ vA = aAlpha; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
+  `,
+  fragmentShader: `
+    uniform vec3 uColor; uniform float uOp; varying float vA;
+    void main(){ if (vA <= 0.002) discard; gl_FragColor = vec4(uColor, vA * uOp); }
+  `
+});
+
+// Built once per ghost, in absolute world coordinates. Float32 error out at 30km
+// is ~4mm, invisible on a decorative line — unlike the live carve trail, which
+// sits right under the camera and does need re-basing.
+function buildGhostMesh(g) {
+  const n = g.bytes.length;
+  if (n < 2) return null;
+  const pos = new Float32Array(n * 2 * 3);
+  const alpha = new Float32Array(n * 2);
+  const idx = new Uint16Array((n - 1) * 6);
+  const W = 0.30;
+  for (let i = 0; i < n; i++) {
+    const b = g.bytes[i];
+    const x = (b & 127) / 127 * (GHOST_SPAN * 2) - GHOST_SPAN;
+    const air = (b & 128) !== 0;
+    const z = -25 - i * GHOST_STEP;
+    const y = terrainHeight(x, z) + 0.05;
+    pos[i * 6]     = x - W; pos[i * 6 + 1] = y; pos[i * 6 + 2] = z;
+    pos[i * 6 + 3] = x + W; pos[i * 6 + 4] = y; pos[i * 6 + 5] = z;
+    // airborne samples leave a gap, so a ghost's jumps read in its line
+    alpha[i * 2] = alpha[i * 2 + 1] = air ? 0 : 1;
+  }
+  for (let i = 0, o = 0; i < n - 1; i++) {
+    const a = i * 2;
+    idx[o++] = a; idx[o++] = a + 1; idx[o++] = a + 2;
+    idx[o++] = a + 1; idx[o++] = a + 3; idx[o++] = a + 2;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('aAlpha', new THREE.BufferAttribute(alpha, 1));
+  geo.setIndex(new THREE.BufferAttribute(idx, 1));
+  const m = new THREE.Mesh(geo, ghostMat);
+  m.frustumCulled = false;
+  return m;
+}
+
+function rebuildGhosts() {
+  for (let i = ghostGroup.children.length - 1; i >= 0; i--) {
+    const c = ghostGroup.children[i];
+    ghostGroup.remove(c);
+    c.geometry.dispose();
+  }
+  for (const g of ghosts) {
+    const m = buildGhostMesh(g);
+    if (m) ghostGroup.add(m);
+  }
+}
+
 /* ====================================================================== */
 /*  GAME STATE                                                             */
 /* ====================================================================== */
@@ -2318,8 +2392,22 @@ function endRun() {
   el.board.classList.add('on');
 }
 
+function shareMountain() {
+  const url = buildShareURL();
+  const done = ok => {
+    el.btnShare.textContent = ok ? 'Link copied' : 'Copy failed — see address bar';
+    if (!ok) location.hash = url.slice(url.indexOf('#') + 1);
+    setTimeout(() => { el.btnShare.textContent = 'Share this mountain'; }, 2200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(() => done(true)).catch(() => done(false));
+  } else done(false);
+}
+
 function renderBoard() {
   el.btnAgain.textContent = usingTouch() ? 'Ride again' : 'Ride again  ·  ENTER';
+  const t = el.board.querySelector('.ptitle');
+  if (t) t.textContent = 'Mountain ' + mountainCode();
   el.lbList.textContent = '';
   if (!runs.length) {
     const li = document.createElement('li');
@@ -2380,6 +2468,7 @@ function startMountain(seed) {
 
   camLagX = 0; camLagY = player.position.y + 5; camLagZ = player.position.z + 10;
   camTgtX = 0; camTgtY = player.position.y + 1.2; camTgtZ = player.position.z - 12;
+  rebuildGhosts();
 }
 
 function newRun() {
@@ -3143,6 +3232,13 @@ bindBtn(el.btnY, keepGoing);
 bindBtn(el.btnN, endRun);
 bindBtn(el.btnAgain, newRun);
 bindBtn(el.btnResume, resumeGame);
+bindBtn(el.btnShare, shareMountain);
+bindBtn(el.btnNew, () => {
+  ghosts = [];
+  location.hash = '';
+  startMountain((Math.random() * 0xffffffff) >>> 0);
+  newRun();
+});
 el.pause.addEventListener('click', resumeGame);
 el.pause.addEventListener('touchend', e => { e.preventDefault(); resumeGame(); }, { passive: false });
 bindBtn(el.btnCard, saveCard);
@@ -3244,7 +3340,22 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-startMountain((Math.random() * 0xffffffff) >>> 0);
+// A shared link brings its own mountain and everyone who has ridden it.
+{
+  const link = readLink();
+  if (link) {
+    ghosts = link.riders;
+    startMountain(link.seed);
+  } else {
+    startMountain((Math.random() * 0xffffffff) >>> 0);
+  }
+  const sig = document.getElementById('sig');
+  if (sig) {
+    sig.textContent = ghosts.length
+      ? 'Mountain ' + mountainCode() + '  ·  ' + ghosts.length + (ghosts.length === 1 ? ' rider before you' : ' riders before you')
+      : 'Mountain ' + mountainCode();
+  }
+}
 applyDay(0);
 scene.fog.color.copy(skyBot);
 requestAnimationFrame(frame);
