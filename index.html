@@ -326,6 +326,9 @@ const LOG_R   = 0.44;         // downed log you grind along
 const LOG_LEN = 16;
 const LOG_H   = 0.92;         // grind surface above the snow
 const GRIND_LINK = 0.25;      // seconds of grind per chain link
+const HOP_RANGE   = 15;       // metres ahead a log will capture a jump
+const HOP_LATERAL = 4.5;      // how far off the log's line the assist still fires
+const HOP_VY_MAX  = 20;       // ceiling on the solved hop, so it stays a hop
 
 const DAY_LEN = 240;          // 4 minute cycle
 
@@ -693,6 +696,25 @@ function rampRise(x, z) {
 }
 
 const groundAt = (x, z) => terrainHeight(x, z) + rampRise(x, z);
+
+// A log close enough ahead that a jump should be aimed at it rather than thrown
+// straight up. Records its line and near edge in _hopX / _hopZ.
+let _hopX = 0, _hopZ = 0;
+function logAhead(x, z) {
+  let bestD = Infinity, found = false;
+  for (let i = 0; i < chunks.length; i++) {
+    const c = chunks[i];
+    if (Math.abs(c.cz - z) > CHUNK_D * 0.5 + LOG_LEN + HOP_RANGE) continue;
+    for (let l = 0; l < c.ln; l++) {
+      if (Math.abs(x - c.lx[l]) > HOP_LATERAL) continue;
+      const near = c.lz[l] + LOG_LEN * 0.5;      // the end you meet first
+      const d = z - near;                        // travel is -z, so ahead is positive
+      if (d < 1.0 || d > HOP_RANGE || d >= bestD) continue;
+      bestD = d; _hopX = c.lx[l]; _hopZ = near; found = true;
+    }
+  }
+  return found;
+}
 
 // Nearest grindable log under (x, z). Returns the chunk-local index packed with
 // its chunk, or null. Called a handful of times per frame at most.
@@ -1667,17 +1689,33 @@ document.addEventListener('gesturestart', e => e.preventDefault(), { passive: fa
 document.addEventListener('dblclick', e => e.preventDefault(), { passive: false });
 
 /* -- device orientation -- */
+// Raw gamma is one Euler angle of a Z-X'-Y'' triple: it under-reads as the phone
+// pitches and is degenerate near beta = ±90 (gimbal lock), which is why tilt felt
+// inconsistent. Project gravity into the screen frame instead — the screen-adjusted
+// approach Full-Tilt and gyronorm.js both take — which is stable at any hold angle.
+//   gravity in device coords, W3C ZXY:  (cosB·sinG, -sinB, -cosB·cosG)
+//   screen "right" in device coords:    (cosA, -sinA, 0)
+const D2R = Math.PI / 180;
+const TILT_FLATTEN = 0.45;    // floor on the pitch compensation, so near-vertical cannot blow up
 function screenTilt(e) {
-  const a = (screen.orientation && typeof screen.orientation.angle === 'number')
-    ? screen.orientation.angle
-    : (window.orientation || 0);
-  const b = e.beta == null ? 0 : e.beta;
-  const g = e.gamma == null ? 0 : e.gamma;
-  if (a === 90) return b;
-  if (a === 180 || a === -180) return -g;
-  if (a === 270 || a === -90) return -b;
-  return g;
+  const b = (e.beta == null ? 0 : e.beta) * D2R;
+  const g = (e.gamma == null ? 0 : e.gamma) * D2R;
+  const a = ((screen.orientation && typeof screen.orientation.angle === 'number')
+    ? screen.orientation.angle : (window.orientation || 0)) * D2R;
+  // gravity in device coords for W3C Z-X'-Y'' Tait-Bryan angles
+  const cb = Math.cos(b);
+  const gx = cb * Math.sin(g);
+  const gy = -Math.sin(b);
+  const gz = -cb * Math.cos(g);
+  // how far gravity has slid toward the screen's right edge
+  const right = gx * Math.cos(a) - gy * Math.sin(a);
+  // ...divided out by how flat the phone is. The raw projection shrinks as the
+  // phone stands up, so the same wrist roll steered less the steeper you held it.
+  // |gz| is that attenuation; the floor stops it exploding near vertical.
+  const comp = Math.max(TILT_FLATTEN, Math.abs(gz));
+  return Math.asin(clamp(right / comp, -1, 1)) / D2R;
 }
+
 function onOrient(e) {
   if (e.gamma == null && e.beta == null) return;
   gotTilt = true;
@@ -1728,10 +1766,12 @@ function updateHint() {
 updateHint();
 
 function steerInput() {
+  steerFromTilt = false;
   if (state !== 'ride') return 0;
   const kb = (steerR ? 1 : 0) - (steerL ? 1 : 0);
   if (kb !== 0) return kb;
   if (tiltOn && tiltBase !== null) {
+    steerFromTilt = true;
     const a = Math.abs(tiltAngle);
     if (a <= TILT_DEAD) return 0;
     const t = clamp((a - TILT_DEAD) / (TILT_FULL - TILT_DEAD), 0, 1);
@@ -1861,6 +1901,8 @@ let jumpPressed = false, compress = 0;
 let chain = 0;                    // links banked on the next clean landing
 let grinding = false, grindX = 0, grindEndZ = 0, grindAcc = 0;
 let springT = 0;                  // brief pass-through so one obstacle cannot bounce you twice
+let steerFromTilt = false;
+let hopX = 0, hopT = 0;           // gentle lateral aim while hopping onto a log
 let armedSpin = 0, armedT = 0;   // spin axis of the kicker you were last on
 const MAX_CONTINUES = 3;
 let continuesLeft = MAX_CONTINUES, runBestMult = 1;
@@ -2050,7 +2092,7 @@ function land(impactVy) {
 function respawn() {
   state = 'ride';
   el.crash.classList.remove('on');
-  vx = 0; vy = 0; flipRot = 0; rollRot = 0; spinAxis = 0; boostT = 0; compress = 0; chain = 0; springT = 0;
+  vx = 0; vy = 0; flipRot = 0; rollRot = 0; spinAxis = 0; boostT = 0; compress = 0; chain = 0; springT = 0; hopT = 0;
   grinding = false; grindAcc = 0;
   survivalT = 0; mult = 1;
   graceT = 0.9;   // respawning inside the tree you just hit is not a death you can avoid
@@ -2108,7 +2150,11 @@ function simulate(dt) {
   let inp = state === 'ride' ? steerInput() : (state === 'title' ? Math.sin(realT * 0.34) * 0.75 : 0);
   if (!grounded) inp *= AIR_STEER;
 
-  if (inp !== 0) {
+  if (steerFromTilt) {
+    // Acceleration control turns tilt into a double integrator, which is what
+    // made it so hard to place the rider. Tilt sets a target lateral speed.
+    vx = damp(vx, inp * STEER_MAX, 5.5, dt);
+  } else if (inp !== 0) {
     vx += inp * STEER_ACC * dt;
   } else {
     const f = STEER_FRIC * dt;
@@ -2118,6 +2164,14 @@ function simulate(dt) {
   const over = Math.abs(px0) - PLAY_HALF;
   if (over > 0) vx -= Math.sign(px0) * over * 0.9 * dt * 8;
   vx = clamp(vx, -STEER_MAX, STEER_MAX);
+
+  // While hopping onto a log, ease toward its line — the lateral timing was the
+  // hard half of landing one. Player input still wins.
+  if (hopT > 0) {
+    hopT -= dt;
+    if (grounded || grinding) hopT = 0;
+    else if (inp === 0) player.position.x = damp(player.position.x, hopX, 4.6, dt);
+  }
 
   player.position.x += vx * dt;
   player.position.z -= fwd * dt;
@@ -2177,9 +2231,22 @@ function simulate(dt) {
     // Alto's model: no charge. Pressing jump adds a hop to whatever upward
     // surface velocity you already carry, so timing the lip is the whole skill.
     if (state === 'ride' && jumpPressed) {
-      vy = Math.max(vy, 0) + JUMP_POP;
       grounded = false;
       spinAxis = armedT > 0 ? armedSpin : 0;
+      if (logAhead(px, pz)) {
+        // Aim the hop at the log instead of throwing a full jump: solve the
+        // vertical speed that puts the rider on the deck as they reach it.
+        // Aim a quarter of the way along the deck, not at the very tip — landing
+        // on the near edge leaves no margin either side.
+        const aimZ = _hopZ - LOG_LEN * 0.28;
+        const t = clamp((pz - aimZ) / Math.max(fwd, 1), 0.14, 1.3);
+        const target = terrainHeight(_hopX, aimZ) + LOG_H;
+        vy = clamp((target - player.position.y - 0.5 * GRAVITY * t * t) / t, JUMP_POP * 0.35, HOP_VY_MAX);
+        hopX = _hopX;
+        hopT = t + 0.35;                       // lateral help only until it lands
+      } else {
+        vy = Math.max(vy, 0) + JUMP_POP;
+      }
       whoosh();
       burst(isTouch ? 6 : 12, 2.5);
     } else if (state === 'ride') {
@@ -2210,8 +2277,8 @@ function simulate(dt) {
       if (vy <= 0) {
         if (state === 'ride') land(vy); else { grounded = true; vy = 0; }
       }
-    } else if (state === 'ride' && vy <= 0 && player.position.y <= logY + 0.3 &&
-               player.position.y > logY - 1.4 && logUnder(px, pz, LOG_R + 0.75)) {
+    } else if (state === 'ride' && vy <= 0 && player.position.y <= logY + 0.55 &&
+               player.position.y > logY - 1.6 && logUnder(px, pz, LOG_R + 1.25)) {
       // dropped onto a log — start grinding
       grinding = true;
       grindX = _logX;
