@@ -50,3 +50,11 @@ Both were invisible in a screenshot and only showed up in numbers.
 - [ ] Barrel rolls still unreachable — nothing sets `spinAxis` while ramps are off.
 
 ## Commit log
+
+### 17:46 — d69d71e
+Document the trick chain
+files: knowledge/decisions/2026-07-27-trick-chain.md, knowledge/decisions/index.md, knowledge/journal/2026-07-27-mobile-and-ramps.md, knowledge/journal/2026-07-27-trick-chain.md, knowledge/journal/index.md, knowledge/wiki/physics.md, knowledge/wiki/roadmap.md
+
+### 18:17 — 34f5de2
+Log hop assist, and fix tilt steering at any hold angle
+files: index.html
