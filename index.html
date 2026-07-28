@@ -329,6 +329,9 @@ const BOOST_TIME  = 2.0;
 const RAMP_L = 8.0, RAMP_W = 5.5, RAMP_H = 1.9;
 const RAMP_BIG_W = 15;        // the full-width feature kicker
 
+const SPAWN_CLEAR_Z = 150;    // metres of clear lane at the top of every mountain
+const SPAWN_CLEAR_X = 26;
+
 const LOG_R   = 0.44;         // downed log you grind along
 const LOG_LEN = 16;
 const LOG_H   = 0.92;         // grind surface above the snow
@@ -1023,9 +1026,15 @@ function scatterProps(c, k) {
     c.lx[i] = (rnd() * 2 - 1) * 16;
     c.lz[i] = c.cz + (i - (c.ln - 1) * 0.5) * 24 + (rnd() - 0.5) * 5;
   }
+  while (c.ln > 0 && c.lz[c.ln - 1] > -SPAWN_CLEAR_Z - LOG_LEN) c.ln--;
 
   // trees and rocks keep clear of both ramps and logs — a grind needs a clean
   // approach and somewhere to land
+  // Every mountain opens with a clear lane. Spawning inside a tree is not a
+  // difficulty, it is a broken start — and with seeded mountains it would be
+  // permanently broken for everyone who opened that link.
+  const inStartLane = (x, z) => z > -SPAWN_CLEAR_Z && Math.abs(x) < SPAWN_CLEAR_X;
+
   const clearOfRamp = (x, z, pad) => {
     for (let i = 0; i < c.pn; i++) {
       if (Math.abs(x - c.px[i]) < c.pw[i] * 0.5 + pad && Math.abs(z - c.pz[i]) < RAMP_L * 0.5 + pad) return false;
@@ -1044,7 +1053,7 @@ function scatterProps(c, k) {
       ? (rnd() < 0.5 ? -1 : 1) * (38 + rnd() * 26)
       : (rnd() * 2 - 1) * 64;
     const z = c.cz + (rnd() - 0.5) * CHUNK_D;
-    if (!clearOfRamp(x, z, 7)) continue;
+    if (!clearOfRamp(x, z, 7) || inStartLane(x, z)) continue;
     c.tx[c.tn] = x; c.tz[c.tn] = z; c.ts[c.tn] = 0.75 + rnd() * 0.8;
     c.tn++;
   }
@@ -1054,7 +1063,7 @@ function scatterProps(c, k) {
   for (let a = 0; a < wantRocks * 3 && c.rn < wantRocks; a++) {
     const x = (rnd() * 2 - 1) * 44;
     const z = c.cz + (rnd() - 0.5) * CHUNK_D;
-    if (!clearOfRamp(x, z, 6)) continue;
+    if (!clearOfRamp(x, z, 6) || inStartLane(x, z)) continue;
     c.rx[c.rn] = x; c.rz[c.rn] = z; c.rs[c.rn] = 0.55 + rnd() * 0.95;
     c.rn++;
   }
@@ -2080,6 +2089,112 @@ function updateWeather(dt) {
 }
 
 /* ====================================================================== */
+/*  GHOSTS — other riders' lines on this mountain                          */
+/* ====================================================================== */
+
+/* A run is a lateral line down a mountain we can regenerate, so a rider is just
+   x sampled every few metres. One byte each: 7 bits of position over the play
+   field, 1 bit for airborne. ~250 bytes for a long run, which fits in a URL
+   fragment — no server, which is the whole reason this is possible on a static
+   host. */
+const GHOST_STEP = 12;             // metres between samples (8 made a 6-rider link ~3.9KB)
+const GHOST_MAX  = 440;            // ~5km of run
+const GHOST_SPAN = 72;             // +-x encoded across 7 bits
+
+const rec = new Uint8Array(GHOST_MAX);
+let recN = 0, recAcc = 0;
+
+function recReset() { recN = 0; recAcc = 0; }
+
+function recSample(x, air) {
+  if (recN >= GHOST_MAX) return;
+  const q = clamp(Math.round((x + GHOST_SPAN) / (GHOST_SPAN * 2) * 127), 0, 127);
+  rec[recN++] = q | (air ? 128 : 0);
+}
+
+function recTick(dt) {
+  recAcc += fwd * dt;
+  while (recAcc >= GHOST_STEP) {
+    recAcc -= GHOST_STEP;
+    recSample(player.position.x, !grounded);
+  }
+}
+
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+function b64enc(u8, n) {
+  let out = '';
+  for (let i = 0; i < n; i += 3) {
+    const a = u8[i], b = i + 1 < n ? u8[i + 1] : 0, c = i + 2 < n ? u8[i + 2] : 0;
+    out += B64[a >> 2] + B64[((a & 3) << 4) | (b >> 4)];
+    if (i + 1 < n) out += B64[((b & 15) << 2) | (c >> 6)];
+    if (i + 2 < n) out += B64[c & 63];
+  }
+  return out;
+}
+function b64dec(str) {
+  const n = str.length, out = new Uint8Array((n * 3) >> 2);
+  let o = 0;
+  for (let i = 0; i < n; i += 4) {
+    const a = B64.indexOf(str[i]), b = B64.indexOf(str[i + 1]);
+    const c = i + 2 < n ? B64.indexOf(str[i + 2]) : -1;
+    const d = i + 3 < n ? B64.indexOf(str[i + 3]) : -1;
+    if (a < 0 || b < 0) break;
+    out[o++] = (a << 2) | (b >> 4);
+    if (c >= 0) out[o++] = ((b & 15) << 4) | (c >> 2);
+    if (d >= 0) out[o++] = ((c & 3) << 6) | d;
+  }
+  return out.subarray(0, o);
+}
+
+// riders currently on this mountain: { score, dist, bytes }
+let ghosts = [];
+
+function encodeRider(g) {
+  return g.score.toString(36) + '.' + b64enc(g.bytes, g.bytes.length);
+}
+function decodeRider(str) {
+  const dot = str.indexOf('.');
+  if (dot < 1) return null;
+  const score = parseInt(str.slice(0, dot), 36);
+  const bytes = b64dec(str.slice(dot + 1));
+  if (!isFinite(score) || !bytes.length) return null;
+  return { score, dist: bytes.length * GHOST_STEP, bytes };
+}
+
+function readLink() { return readLinkFrom(location.href); }
+
+function readLinkFrom(href) {
+  const i = href.indexOf('#');
+  const h = i < 0 ? '' : href.slice(i + 1);
+  if (!h) return null;
+  const q = new URLSearchParams(h);
+  const m = q.get('m');
+  if (!m) return null;
+  const seed = parseInt(m, 36);
+  if (!isFinite(seed)) return null;
+  const riders = [];
+  for (const r of q.getAll('r')) {
+    const g = decodeRider(r);
+    if (g) riders.push(g);
+  }
+  return { seed: seed >>> 0, riders };
+}
+
+// Anyone can always share. Only the top five survive the next hop, so a weak run
+// propagates exactly one hop and then falls out.
+function buildShareURL() {
+  const mine = { score: Math.floor(runBestScore), dist: Math.floor(runBestDist),
+                 bytes: rec.slice(0, recN) };
+  const pool = ghosts.concat(recN > 4 ? [mine] : []);
+  pool.sort((a, b) => b.score - a.score);
+  const keep = pool.slice(0, 5);
+  if (recN > 4 && keep.indexOf(mine) < 0) keep.push(mine);   // you always ride along
+  const parts = ['m=' + runSeed.toString(36)];
+  for (const g of keep) parts.push('r=' + encodeRider(g));
+  return location.origin + location.pathname + '#' + parts.join('&');
+}
+
+/* ====================================================================== */
 /*  GAME STATE                                                             */
 /* ====================================================================== */
 
@@ -2091,6 +2206,7 @@ let score = 0, mult = 1, distance = 0;
 let vx = 0, vy = 0, fwd = SPD_BASE;
 let grounded = true, flipRot = 0, rollRot = 0, spinAxis = 0;
 let jumpPressed = false, compress = 0;
+let runBestScore = 0, runBestDist = 0;
 let chain = 0;                    // links banked on the next clean landing
 let grinding = false, grindX = 0, grindEndZ = 0, grindAcc = 0;
 let springT = 0;                  // brief pass-through so one obstacle cannot bounce you twice
@@ -2272,8 +2388,14 @@ function newRun() {
   el.wipe.classList.remove('on');
   continuesLeft = MAX_CONTINUES;
   runBestMult = 1;
-  score = 0; distance = 0;
-  respawn();
+  runBestScore = 0; runBestDist = 0;
+  score = 0; mult = 1; chain = 0;
+  recReset();
+  // Back to the top of the same mountain: scores stay comparable and the ghost
+  // lines, which are recorded from the start, line up with yours.
+  startMountain(runSeed);
+  state = 'ride';
+  survivalT = 0;
   graceT = 1.2;
   el.hud.classList.add('on');
 }
@@ -2413,6 +2535,8 @@ function simulate(dt) {
   if (state === 'ride') {
     distance += fwd * dt;
     score += fwd * dt * 0.55 * mult;
+    recTick(dt);
+    if (score > runBestScore) { runBestScore = score; runBestDist = distance; }
   }
 
   const px = player.position.x, pz = player.position.z;
