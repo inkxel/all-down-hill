@@ -44,15 +44,26 @@ raw WebAudio because that project's stack is Tone.js plus sample libraries. See
 
 ### Reactivity
 
-| game state | effect on the music |
-|---|---|
-| speed | opens the pad filter, shortens the gap between notes, raises note velocity |
-| carving | bends pad cutoff and resonance — the board plays the pad |
-| speed (again) | ducks the whole bed, so wind stays on top as it gets loud |
-| crash | dims to 25% |
-| — | key shifts every ~22s |
+| game state | effect on the music | measured |
+|---|---|---|
+| speed | pad LFO rate — the bed breathes faster | 0.55 → 2.05 Hz |
+| speed | opens the pad filter | 340 → ~1840 Hz |
+| speed | shortens the gap between notes | ~3.2s → ~1.1s |
+| carving | bends pad cutoff and resonance | 496 Hz / Q 3 → 2466 Hz / Q 9.5 |
+| speed | light duck so wind stays on top | −10% at full speed |
+| crash | dims | 35% |
+| — | key shifts every ~22s | |
 
-Music sits at `MUSIC_GAIN = 0.17`, deliberately under the wind and board.
+**The LFO is the one that makes reactivity legible.** Note density alone was the
+original cue and it was unreadable — Tucker played it and could not tell the
+music responded at all. A tempo change is unmistakable where a density change is
+not.
+
+The descending swoop on the first note is **deliberate**: the pad oscillators
+start high and glide into the first chord. Don't "fix" it.
+
+Music sits at `MUSIC_GAIN = 0.30`. It was 0.17 with a 28% speed duck, which made
+it vanish exactly where the player spends most of their time.
 **There is no mute control** — that is a known gap.
 
 ## Removed
