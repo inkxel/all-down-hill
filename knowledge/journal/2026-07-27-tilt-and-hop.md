@@ -115,3 +115,11 @@ files: knowledge/decisions/2026-07-27-tilt-gravity-projection.md, knowledge/deci
 ### 18:44 — 2d24ef8
 Fix tilt neutral after a continue; make logs landable; README pass
 files: README.md, index.html, knowledge/journal/2026-07-27-tilt-and-hop.md, media/gameplay.gif
+
+### 18:45 — 55372a4
+Document the tilt neutral bug and the test that first failed to catch it
+files: knowledge/journal/2026-07-27-tilt-and-hop.md, knowledge/wiki/mobile.md
+
+### 19:07 — b3da4a3
+Grind dismount both ways, drop the chime, add generative music
+files: index.html

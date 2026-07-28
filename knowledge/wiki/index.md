@@ -10,6 +10,7 @@ date: 2026-07-27
 | File | Description |
 | ---- | ----------- |
 | [[atmosphere]] — atmosphere | Sky, day/night cycle, weather states, fog and the horizon parallax — how the scene's mood is driven from two numbers. |
+| [[audio]] — audio | The WebAudio graph — wind, carve, impacts and the generative music bed, and how they react to the game. |
 | [[deploy]] — deploy | How the game ships — static GitHub Pages from main branch root, no build step, and what that constrains. |
 | [[index-map]] — index-map | Structural map of index.html — what lives at which section, since the whole program is one file and the tree-sitter codemap cannot parse it. |
 | [[mobile]] — mobile | How touch, tilt and the viewport work on phones — and the traps that made mobile completely non-functional once. |
