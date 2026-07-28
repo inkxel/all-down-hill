@@ -47,13 +47,9 @@ Hit anything wrong and you're picking yourself out of the snow with three ways b
 <br><sub>One run, four minutes apart</sub>
 </div>
 
-## Nothing here was drawn
+## Running it
 
-There are no assets in this repository. Not one image, model, texture or sound file.
-
-Every ridge on the horizon, every pine, every rock, the colour of the sky at any minute of the cycle, the wind in your ears, the edge chattering through a hard carve, the synth line that speeds up as you do — all of it is written into being by the code at the moment the page loads. Delete your cache and it builds the whole mountain again from nothing.
-
-It is one `index.html`. Three.js from a CDN, and then the file. No build step, nothing to install.
+It is one `index.html`. Three.js from a CDN, and then the file — no build step, nothing to install. Every ridge, pine, rock, sky colour and sound is generated at load rather than shipped as an asset, which is why the repo has no art in it.
 
 ```
 git clone https://github.com/inkxel/all-down-hill.git
