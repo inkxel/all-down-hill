@@ -109,3 +109,15 @@ files: knowledge/journal/2026-07-27-music-and-dismount.md, knowledge/wiki/audio.
 ### 19:51 — 0418b14
 Play audio on iOS even with the ring/silent switch on
 files: index.html
+
+### 19:52 — e64b262
+Document the iOS silent-switch audio trap
+files: knowledge/journal/2026-07-27-music-and-dismount.md, knowledge/wiki/audio.md
+
+### 20:03 — 3c323a1
+Rewrite README with voice
+files: README.md
+
+### 20:07 — 9a960b7
+Demote the "nothing was drawn" hook
+files: README.md
