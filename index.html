@@ -2182,13 +2182,19 @@ let ghosts = [];
 function encodeRider(g) {
   return g.score.toString(36) + '.' + b64enc(g.bytes, g.bytes.length);
 }
+// A URL fragment is untrusted input. Without a cap, a hostile or accidental link
+// allocates unbounded typed arrays and geometry — and past ~32k samples the
+// Uint16Array index buffer in buildGhostMesh() silently overflows.
+const LINK_RIDERS_MAX = 6;
+
 function decodeRider(str) {
   const dot = str.indexOf('.');
-  if (dot < 1) return null;
+  if (dot < 1 || dot > 12) return null;
   const score = parseInt(str.slice(0, dot), 36);
-  const bytes = b64dec(str.slice(dot + 1));
-  if (!isFinite(score) || !bytes.length) return null;
-  return { score, dist: bytes.length * GHOST_STEP, bytes };
+  let bytes = b64dec(str.slice(dot + 1));
+  if (!isFinite(score) || score < 0 || !bytes.length) return null;
+  if (bytes.length > GHOST_MAX) bytes = bytes.subarray(0, GHOST_MAX);
+  return { score: Math.min(score, 1e9), dist: bytes.length * GHOST_STEP, bytes };
 }
 
 function readLink() { return readLinkFrom(location.href); }
@@ -2204,6 +2210,7 @@ function readLinkFrom(href) {
   if (!isFinite(seed)) return null;
   const riders = [];
   for (const r of q.getAll('r')) {
+    if (riders.length >= LINK_RIDERS_MAX) break;
     const g = decodeRider(r);
     if (g) riders.push(g);
   }
@@ -2245,6 +2252,7 @@ yardMesh.frustumCulled = false;
 scene.add(yardMesh);
 
 let yardN = 0;
+const YARD_SITES_MAX = Math.floor(YARD_MAX / YARD_PER);
 const yardSites = [];            // crash points on this mountain, survives a re-ride
 
 function yardClear() { yardN = 0; yardSites.length = 0; yardWrite(); }
@@ -2430,6 +2438,7 @@ function doCrash() {
   chain = 0; grabT = 0; grabBanked = 0; trickType = T_GRAB;
   grinding = false;
   yardSites.push({ x: player.position.x, z: player.position.z });
+  if (yardSites.length > YARD_SITES_MAX) yardSites.shift();   // only keep what can render
   yardDrop(player.position.x, player.position.z);
   burst(isTouch ? 26 : 48, 7);
   thud(1.35);
@@ -2546,6 +2555,14 @@ function startMountain(seed) {
   runSeed = (seed >>> 0) || 1;
   seedNoise(runSeed);
   buildWeatherSchedule();
+
+  // Snap the live weather to the schedule's opening state. Damping toward it
+  // instead let the previous mountain bleed into the first seconds of this one,
+  // so two riders on the same link could open in different weather.
+  wCursor = 0;
+  wNext = wSchedule.length ? wSchedule[0].s : 0;
+  const W0 = WEATHER[wNext];
+  wSnow = W0.snow; wFog = W0.fog; wWind = W0.wind; wSize = W0.size;
 
   distance = 0;
   wCursor = 0;
