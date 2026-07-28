@@ -66,6 +66,20 @@ Two guards, deliberately redundant:
 
 ## Tilt response
 
+**The signal is gravity projected into the screen frame, pitch-compensated** —
+not raw `gamma`. Gamma is one Euler angle of a Z-X'-Y'' triple: it under-reads as
+the phone pitches and is degenerate near `beta = ±90`. See
+[[decisions/2026-07-27-tilt-gravity-projection]].
+
+**Tilt drives target lateral speed, not acceleration.** An absolute-position
+device mapped to acceleration makes position a double integrator, which is
+unplaceable. The keyboard is momentary and keeps the acceleration model — so two
+control models coexist deliberately.
+
+Shaping (below) sits on top of that signal.
+
+### Shaping
+
 Raw `gamma` is jittery, and a linear ramp turned that jitter into hard carves.
 Two shaping steps:
 - damped at `TILT_SMOOTH` before it becomes input

@@ -13,4 +13,5 @@ date: 2026-07-27
 | [[2026-07-27-feel-rework]] — Feel rework — Tucker's first play notes | Reworked jump, pacing, camera and the wipeout flow from Tucker's play notes; root-caused a 73m catapult; shipped the rigged rider; scaffolded this knowledge layer. |
 | [[2026-07-27-landing-fix]] — Landing fix — the rotation dead zone | Root-caused "landings are too precise" to a systemic dead zone where any hold past 90ms guaranteed a crash; fixed with a settle-to-nearest-turn assist. |
 | [[2026-07-27-mobile-and-ramps]] — Mobile rescue + ramps switched off | Disabled ramp placement without deleting the machinery; found and fixed three separate reasons mobile was non-functional on iPhone. |
+| [[2026-07-27-tilt-and-hop]] — Tilt, hop assist, README | Fixed tilt steering at the signal and control-model level, added a log hop assist, and rewrote the README as a game intro. |
 | [[2026-07-27-trick-chain]] — Trick chain + grinds | Added rock bounces, tree-crown springs and grindable logs feeding a trick chain; platform-appropriate crash prompt. |

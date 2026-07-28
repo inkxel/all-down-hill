@@ -58,3 +58,7 @@ files: knowledge/decisions/2026-07-27-trick-chain.md, knowledge/decisions/index.
 ### 18:17 — 34f5de2
 Log hop assist, and fix tilt steering at any hold angle
 files: index.html
+
+### 18:20 — ef27d40
+Rewrite README as a game intro
+files: README.md, knowledge/journal/2026-07-27-trick-chain.md, media/gameplay.gif, media/key-art.jpg, media/shot-dawn.jpg, media/shot-day.jpg, media/shot-golden.jpg, media/shot-night.jpg
