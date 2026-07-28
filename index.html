@@ -1502,6 +1502,119 @@ camera.add(speedLines);
 let actx = null, master = null, noiseBuf = null;
 let windGain = null, windFilt = null, carveGain = null, carveFilt = null;
 
+/* ---------------------------- generative music --------------------------
+   Technique borrowed from generative.fm (github.com/generativefm) — a small
+   fixed scale, notes scheduled at randomised intervals, very long envelopes,
+   everything blurred through reverb. Not the code: that stack is Tone.js plus
+   recorded sample libraries, and this game ships one file with no assets. So
+   it's raw WebAudio, which also lets the music share the graph the wind and
+   carve already live on and react to them.                                  */
+
+const MUSIC_GAIN  = 0.17;     // deliberately under the wind and the board
+const PENTA       = [0, 3, 5, 7, 10];        // minor pentatonic — never sours
+const KEYS        = [55.00, 61.74, 49.00, 58.27, 65.41];   // A1 B1 G1 Bb1 C2
+let musicBus = null, musicGain = null, padFilter = null, padOscs = null, revSend = null;
+let noteAcc = 0, nextNote = 2, chordAcc = 0, keyIdx = 0, musicDuck = 1;
+
+// Procedural impulse response — noise with an exponential tail.
+function makeIR(seconds, decay) {
+  const len = Math.floor(actx.sampleRate * seconds);
+  const buf = actx.createBuffer(2, len, actx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+  }
+  return buf;
+}
+
+function initMusic() {
+  musicGain = actx.createGain(); musicGain.gain.value = MUSIC_GAIN;
+  musicGain.connect(master);
+
+  const rev = actx.createConvolver();
+  rev.buffer = makeIR(4.5, 2.6);
+  const revGain = actx.createGain(); revGain.gain.value = 0.9;
+  rev.connect(revGain); revGain.connect(musicGain);
+  revSend = rev;
+
+  musicBus = actx.createGain(); musicBus.gain.value = 0.5;
+  musicBus.connect(musicGain);
+
+  // Pad: three detuned voices holding a chord, filter opening with speed.
+  padFilter = actx.createBiquadFilter();
+  padFilter.type = 'lowpass'; padFilter.frequency.value = 380; padFilter.Q.value = 4;
+  padFilter.connect(musicBus); padFilter.connect(rev);
+
+  padOscs = [];
+  for (let i = 0; i < 3; i++) {
+    const o = actx.createOscillator();
+    o.type = i === 2 ? 'sine' : 'triangle';
+    o.detune.value = (i - 1) * 7;
+    const g = actx.createGain();
+    g.gain.value = [0.30, 0.20, 0.14][i];
+    o.connect(g); g.connect(padFilter);
+    o.start();
+    padOscs.push(o);
+  }
+  setChord(0);
+}
+
+const semi = (root, n) => root * Math.pow(2, n / 12);
+
+function setChord(k) {
+  if (!padOscs) return;
+  const root = KEYS[k % KEYS.length];
+  const tones = [semi(root, 0), semi(root, 7), semi(root, 12)];
+  const t = actx.currentTime;
+  for (let i = 0; i < 3; i++) padOscs[i].frequency.setTargetAtTime(tones[i], t, 3.5);
+}
+
+// One soft bell, straight into the reverb.
+function playNote(spdT) {
+  if (!actx || !revSend) return;
+  const root = KEYS[keyIdx % KEYS.length];
+  const step = PENTA[(Math.random() * PENTA.length) | 0];
+  const oct = 24 + 12 * ((Math.random() * 3) | 0);
+  const f = semi(root, step + oct);
+  const t = actx.currentTime;
+  const o = actx.createOscillator();
+  o.type = Math.random() < 0.5 ? 'sine' : 'triangle';
+  o.frequency.value = f;
+  const g = actx.createGain();
+  const peak = 0.16 * (0.6 + spdT * 0.5);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(peak, t + 0.05);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 3.4);
+  o.connect(g); g.connect(revSend); g.connect(musicBus);
+  o.start(t); o.stop(t + 3.6);
+}
+
+function updateMusic(raw, spdT, turn) {
+  if (!musicGain) return;
+
+  // Speed opens the pad and thickens the note density; carving bends the filter,
+  // so the board is playing the pad rather than just sitting over it.
+  const cut = 300 + spdT * 1400 + Math.abs(turn) * 700;
+  padFilter.frequency.value = lerp(padFilter.frequency.value, cut, Math.min(1, raw * 3));
+  padFilter.Q.value = lerp(padFilter.Q.value, 4 + Math.abs(turn) * 7, Math.min(1, raw * 3));
+
+  // Wind is loudest at speed, so duck the music under it — the mix stays wind-first.
+  const duckTo = state === 'crash' ? 0.25 : 1 - spdT * 0.28;
+  musicDuck = lerp(musicDuck, duckTo, Math.min(1, raw * 2));
+  musicGain.gain.value = MUSIC_GAIN * musicDuck;
+
+  chordAcc += raw;
+  if (chordAcc > 22) { chordAcc = 0; keyIdx = (keyIdx + 1 + ((Math.random() * 2) | 0)) % KEYS.length; setChord(keyIdx); }
+
+  noteAcc += raw;
+  if (noteAcc >= nextNote) {
+    noteAcc = 0;
+    nextNote = lerp(3.2, 1.1, spdT) * (0.6 + Math.random() * 0.9);
+    playNote(spdT);
+  }
+}
+
+
 function initAudio() {
   if (actx) { if (actx.state === 'suspended') actx.resume(); return; }
   const AC = window.AudioContext || window.webkitAudioContext;
@@ -1526,6 +1639,8 @@ function initAudio() {
   carveGain = actx.createGain(); carveGain.gain.value = 0;
   carve.connect(carveFilt); carveFilt.connect(carveGain); carveGain.connect(master);
   carve.start();
+
+  initMusic();
 
   if (actx.state === 'suspended') actx.resume();
 }
@@ -1568,21 +1683,6 @@ function thud(power) {
   g.gain.exponentialRampToValueAtTime(0.0001, t + 0.26);
   s.connect(f); f.connect(g); g.connect(master);
   s.start(t); s.stop(t + 0.3);
-}
-
-function chime() {
-  if (!actx) return;
-  const t = actx.currentTime;
-  for (let i = 0; i < 2; i++) {
-    const o = actx.createOscillator(); o.type = 'triangle';
-    o.frequency.value = i ? 1318.5 : 987.77;
-    const g = actx.createGain();
-    g.gain.setValueAtTime(0.0001, t + i * 0.06);
-    g.gain.exponentialRampToValueAtTime(0.16, t + i * 0.06 + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.06 + 0.42);
-    o.connect(g); g.connect(master);
-    o.start(t + i * 0.06); o.stop(t + i * 0.06 + 0.46);
-  }
 }
 
 /* ====================================================================== */
@@ -2054,7 +2154,6 @@ function springOff(up, power) {
   shake = Math.max(shake, 0.06 + power * 0.10);
   burst(isTouch ? 8 : 16, 2.5 + power * 3);
   thud(0.30 + power * 0.4);
-  chime();
 }
 
 function land(impactVy) {
@@ -2085,7 +2184,6 @@ function land(impactVy) {
     // a longer chain is worth more per link, not just more links
     score += tricks * 260 * mult * (1 + chain * 0.35);
     slowT = 0.42;
-    chime();
     el.mult.classList.add('on');
   }
   chain = 0;
@@ -2211,16 +2309,20 @@ function simulate(dt) {
     score += fwd * dt * 1.6 * mult;      // grinding pays while you hold it
 
     if (state === 'ride' && jumpPressed) {
+      // Popping off the end is the skilled exit and pays double.
       grinding = false;
       grounded = false;
-      vy = JUMP_POP + 4.5;
-      if (chain < CHAIN_CAP) chain++;
+      vy = JUMP_POP + 5.5;
+      chain = Math.min(CHAIN_CAP, chain + 2);
+      boostT = BOOST_TIME * 0.6;
       whoosh();
       burst(isTouch ? 8 : 16, 3);
     } else if (pz < grindEndZ) {
-      grinding = false;                  // rode off the end
-      doCrash();
-      return;
+      // Rolling off the end just drops you back to the snow. Mounting late used
+      // to leave no room to jump, making the grind an unavoidable crash.
+      grinding = false;
+      grounded = false;
+      vy = 0;
     }
   } else if (grounded) {
     const prevGy = groundAt(px0, pz0);
@@ -2293,7 +2395,6 @@ function simulate(dt) {
       compress = Math.min(1, compress + 0.4);
       shake = Math.max(shake, 0.09);
       thud(0.5);
-      chime();
     }
   }
   jumpPressed = false;
@@ -2577,6 +2678,8 @@ function updateSpeedLines(dt) {
 
 function updateAudio(dt) {
   if (!actx || actx.state !== 'running') return;
+  const turnNow = grounded && state !== 'crash' ? Math.abs(vx) / STEER_MAX : 0;
+  updateMusic(dt, spdT, turnNow);
   const air = grounded ? 0 : 0.35;
   const wg = (0.05 + spdT * 0.24 + air * 0.12) * (state === 'title' ? 0.45 : 1);
   windGain.gain.value = lerp(windGain.gain.value, wg, Math.min(1, dt * 5));
