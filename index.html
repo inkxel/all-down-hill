@@ -248,7 +248,7 @@ const GRAD3 = new Int8Array([
 ]);
 const PERM = new Uint8Array(512);
 const PMOD12 = new Uint8Array(512);
-(function seedNoise(seed) {
+function seedNoise(seed) {
   const rnd = mulberry32(seed);
   const p = new Uint8Array(256);
   for (let i = 0; i < 256; i++) p[i] = i;
@@ -257,7 +257,8 @@ const PMOD12 = new Uint8Array(512);
     const t = p[i]; p[i] = p[j]; p[j] = t;
   }
   for (let i = 0; i < 512; i++) { PERM[i] = p[i & 255]; PMOD12[i] = PERM[i] % 12; }
-})(20260726);
+}
+seedNoise(20260726);          // replaced per run by startMountain()
 
 function noise2(xin, yin) {
   let n0 = 0, n1 = 0, n2 = 0;
@@ -339,6 +340,13 @@ const HOP_VY_MAX  = 20;       // ceiling on the solved hop, so it stays a hop
 const DAY_LEN = 240;          // 4 minute cycle
 
 const MAX_TREE = 26, MAX_ROCK = 18, MAX_RAMP = 3, MAX_LOG = 2;
+
+/* A run happens on a named mountain. Everything a rider can see must derive from
+   runSeed or two people on the same link get similar-but-different terrain — the
+   nasty failure mode, because it does not look obviously wrong. Cosmetic seeds
+   (title snow, stars, rock jitter, particles) stay fixed on purpose. */
+let runSeed = 0;
+const mountainCode = () => runSeed.toString(36).toUpperCase();
 
 /* ---------------------------- device / DOM ----------------------------- */
 
@@ -984,7 +992,7 @@ const SECTIONS = [
 ];
 
 function scatterProps(c, k) {
-  const rnd = mulberry32((k * 9781 + 13) | 0);
+  const rnd = mulberry32((runSeed ^ (k * 9781 + 13)) | 0);
   const travelled = Math.max(0, k * CHUNK_D);
   const diff = Math.min(1, travelled / 3000);
   const sec = SECTIONS[((k % SECTIONS.length) + SECTIONS.length) % SECTIONS.length];
@@ -2033,17 +2041,31 @@ const WEATHER = [
   { name: 'heavy', snow: 1.00, fog: 0.55, wind: 1.4, size: 0.34 },
   { name: 'windy', snow: 0.55, fog: 0.74, wind: 5.6, size: 0.24 }
 ];
-let wNext = 0, wTimer = 26;
+let wNext = 0;
+/* Keyed to distance, not wall time: two riders on the same link should meet the
+   same storm at the same point on the mountain however fast they ride it. */
+const wSchedule = [];
+let wCursor = 0;
+
+function buildWeatherSchedule() {
+  const rnd = mulberry32((runSeed ^ 0x9e3779b9) | 0);
+  wSchedule.length = 0;
+  wCursor = 0;
+  let at = 0, prev = -1;
+  while (at < 40000) {
+    let n = (rnd() * WEATHER.length) | 0;
+    if (n === prev) n = (n + 1) % WEATHER.length;
+    prev = n;
+    wSchedule.push({ at, s: n });
+    at += 600 + rnd() * 700;
+  }
+}
 let wSnow = 0, wFog = 1, wWind = 0, wSize = 0.26, wsVisible = 0;
 
 function updateWeather(dt) {
-  wTimer -= dt;
-  if (wTimer <= 0) {
-    let n = wNext;
-    while (n === wNext) n = (Math.random() * WEATHER.length) | 0;
-    wNext = n;
-    wTimer = 22 + Math.random() * 20;
-  }
+  while (wCursor + 1 < wSchedule.length && wSchedule[wCursor + 1].at <= distance) wCursor++;
+  while (wCursor > 0 && wSchedule[wCursor].at > distance) wCursor--;
+  if (wSchedule.length) wNext = wSchedule[wCursor].s;
   const T = WEATHER[wNext];
   wSnow = damp(wSnow, T.snow, 0.30, dt);
   wFog  = damp(wFog,  T.fog,  0.30, dt);
@@ -2216,6 +2238,32 @@ function resumeGame() {
   if (tiltOn) { needBaseline = true; tiltSettle = 0.6; }   // they may have moved the phone
   graceT = Math.max(graceT, 0.4);
   state = 'ride';
+}
+
+// Adopt a seed and rebuild the world from it. Everything terrain-derived is
+// regenerated here; nothing may survive from the previous mountain.
+function startMountain(seed) {
+  runSeed = (seed >>> 0) || 1;
+  seedNoise(runSeed);
+  buildWeatherSchedule();
+
+  distance = 0;
+  wCursor = 0;
+  player.position.set(0, 0, -25);
+  player.position.y = groundAt(0, -25);
+  player.quaternion.identity();
+  vx = 0; vy = 0; fwd = SPD_BASE; grounded = true; grinding = false;
+
+  const k0 = Math.floor(-player.position.z / CHUNK_D) - 1;
+  for (let i = 0; i < N_CHUNKS; i++) buildChunk(chunks[i], k0 + i);
+  player.position.y = groundAt(player.position.x, player.position.z);
+
+  trailOrigin.copy(player.position); trail.position.copy(trailOrigin);
+  sprayOrigin.copy(player.position); spray.position.copy(sprayOrigin);
+  for (let i = 0; i < TRAIL_N * 2; i++) trailA[i] = 0;
+
+  camLagX = 0; camLagY = player.position.y + 5; camLagZ = player.position.z + 10;
+  camTgtX = 0; camTgtY = player.position.y + 1.2; camTgtZ = player.position.z - 12;
 }
 
 function newRun() {
@@ -3072,6 +3120,7 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+startMountain((Math.random() * 0xffffffff) >>> 0);
 applyDay(0);
 scene.fog.color.copy(skyBot);
 requestAnimationFrame(frame);
