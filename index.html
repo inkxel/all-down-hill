@@ -3220,8 +3220,16 @@ function updateHUD(raw) {
 
 let last = performance.now();
 
+const TITLE_FPS  = 1 / 30;     // the title is 2D; 60 buys nothing
+const TITLE_IDLE = 90;         // seconds before an untouched title screen backs off
+const TITLE_SLOW = 1 / 6;
+let titleAcc = 0;
+
 function frame(now) {
   requestAnimationFrame(frame);
+
+  // A hidden tab should cost nothing at all.
+  if (document.hidden) { last = now; return; }
 
   let raw = (now - last) / 1000;
   last = now;
@@ -3230,8 +3238,16 @@ function frame(now) {
   realT += raw;
 
   if (state === 'title') {
-    drawTitle(realT, raw);
-  } else if (state !== 'paused') {
+    // The 3D canvas is at opacity 0 behind the title, so simulating and rendering
+    // it is invisible work. Left running it heated a laptop over twenty minutes.
+    // The cross-fade still works: rendering starts the moment the fade does.
+    titleAcc += raw;
+    const step = realT > TITLE_IDLE ? TITLE_SLOW : TITLE_FPS;
+    if (titleAcc >= step) { drawTitle(realT, titleAcc); titleAcc = 0; }
+    return;
+  }
+
+  if (state !== 'paused') {
     dayT = (dayT + raw / DAY_LEN) % 1;
   }
 
