@@ -56,3 +56,7 @@ title-canvas cosmetics, not terrain, props or weather — outside the determinis
 contract, and reseeding it buys nothing. Left alone deliberately.
 
 ## Commit log
+
+### 09:10 — 8849920
+Document the Codex pass
+files: knowledge/decisions/index.md, knowledge/index.md, knowledge/journal/2026-07-27-shared-mountains.md, knowledge/journal/2026-07-28-codex-pass.md, knowledge/journal/2026-07-28-session.md, knowledge/journal/index.md, knowledge/plans/index.md, knowledge/research/index.md, knowledge/wiki/index.md
