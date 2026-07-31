@@ -61,9 +61,13 @@
   }
   #mult.on { opacity: .96; }
 
+  /* Shared so the sound toggle can sit clear of the hint line by construction
+     rather than by a guessed offset — move the hint and the toggle follows. */
+  :root { --hint-bottom: max(26px, calc(env(safe-area-inset-bottom) + 22px)); }
+
   #hint {
     display: flex; align-items: flex-end; justify-content: center;
-    padding-bottom: max(26px, calc(env(safe-area-inset-bottom) + 22px));
+    padding-bottom: var(--hint-bottom);
     text-align: center; font-size: 10px; font-weight: 300; letter-spacing: .30em;
     text-transform: uppercase; opacity: 0; pointer-events: none;
     transition: opacity 1200ms ease; text-shadow: 0 1px 12px rgba(0,0,0,.4);
@@ -72,6 +76,40 @@
   @media (max-width: 560px) {
     #hint { letter-spacing: .16em; padding-left: 16px; padding-right: 16px; }
     #tw h1 { font-size: min(9.2vw, 52px); letter-spacing: .22em; text-indent: .22em; }
+  }
+
+  /* ---------- Sound toggle ----------
+     Its own fixed layer rather than part of #hud, for two reasons: #hud fades
+     out with the run, and the game deliberately plays through the iOS
+     ring/silent switch. A player who has physically silenced their phone needs
+     this reachable from the title screen onward, so it outranks every veil. */
+  #mute {
+    position: fixed; z-index: 40; appearance: none; cursor: pointer; padding: 0;
+    right: max(18px, env(safe-area-inset-right));
+    bottom: max(18px, calc(env(safe-area-inset-bottom) + 14px));
+    width: 34px; height: 34px; display: grid; place-items: center;
+    background: rgba(255,255,255,.06); color: #fdf3ef;
+    border: 1px solid rgba(255,255,255,.18); border-radius: 999px;
+    opacity: .3; transition: opacity 200ms ease, background 200ms ease, border-color 200ms ease;
+  }
+  #mute:hover { opacity: .9; background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.42); }
+  #mute svg {
+    width: 15px; height: 15px; display: block; fill: none; stroke: currentColor;
+    stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
+    filter: drop-shadow(0 1px 6px rgba(0,0,0,.45));   /* holds up over bright snow */
+  }
+  #mute .spk-off { display: none; }
+  #mute.muted { opacity: .6; }
+  #mute.muted .spk-on  { display: none; }
+  #mute.muted .spk-off { display: inline; }
+  @media (pointer: coarse) {
+    #mute { width: 44px; height: 44px; }        /* thumb-sized, per the .btn precedent */
+    #mute svg { width: 18px; height: 18px; }
+  }
+  /* On a narrow screen the hint runs the full width and passes straight under
+     the toggle. Lift it above that line — which also puts it in thumb reach. */
+  @media (pointer: coarse), (max-width: 560px) {
+    #mute { bottom: calc(var(--hint-bottom) + 30px); }
   }
 
   #flash {
@@ -178,6 +216,14 @@
 <div id="hint" class="layer"></div>
 <div id="crash" class="layer">Wipeout</div>
 <div id="flash" class="layer"></div>
+
+<button id="mute" class="ui" type="button" aria-pressed="false" aria-label="Mute sound" title="Sound (M)">
+  <svg viewBox="0 0 16 16" aria-hidden="true">
+    <path d="M3 6.2h2.4L8.6 3.6v8.8L5.4 9.8H3z"/>
+    <g class="spk-on"><path d="M10.9 6.3a3.4 3.4 0 0 1 0 3.4"/><path d="M12.8 4.6a6 6 0 0 1 0 6.8"/></g>
+    <g class="spk-off"><path d="M11.2 6.4l3.4 3.2M14.6 6.4l-3.4 3.2"/></g>
+  </svg>
+</button>
 
 <div id="wipe" class="veil layer"><div class="panel">
   <p class="ptitle">Wipeout</p>
@@ -395,6 +441,7 @@ const el = {
   btnCard:  document.getElementById('btnCard'),
   btnShare: document.getElementById('btnShare'),
   btnNew:   document.getElementById('btnNew'),
+  mute:     document.getElementById('mute'),
   lbTitle:  null
 };
 
@@ -402,10 +449,12 @@ if (isTouch) el.prompt.textContent = 'Tap to start';
 
 let bestScore = 0;
 let runs = [];
+let muted = false;
 try {
   bestScore = parseInt(localStorage.getItem('adh_best') || '0', 10) || 0;
   runs = JSON.parse(localStorage.getItem('adh_runs') || '[]');
   if (!Array.isArray(runs)) runs = [];
+  muted = localStorage.getItem('adh_mute') === '1';
 } catch (e) { /* private mode */ }
 el.best.textContent = bestScore.toLocaleString('en-US');
 
@@ -1541,6 +1590,8 @@ camera.add(speedLines);
 /*  AUDIO                                                                  */
 /* ====================================================================== */
 
+const MASTER_GAIN = 0.85;     // every voice in the game routes through this node
+
 let actx = null, master = null, noiseBuf = null;
 let windGain = null, windFilt = null, carveGain = null, carveFilt = null;
 
@@ -1717,14 +1768,40 @@ function unmuteIOS() {
   if (play && play.catch) play.catch(() => { /* blocked until a gesture; retried on the next one */ });
 }
 
+/* ------------------------------- mute -----------------------------------
+   `master` is the only correct place to hold this. Every voice — wind, carve,
+   impacts, music — connects to it, and unlike `musicGain` and `windGain`
+   (both rewritten every frame by updateAudio/updateMusic) nothing writes to
+   its gain per frame, so a zero here actually stays zero.                    */
+
+function applyMute() {
+  if (master) master.gain.value = muted ? 0 : MASTER_GAIN;
+  el.mute.classList.toggle('muted', muted);
+  el.mute.setAttribute('aria-pressed', muted ? 'true' : 'false');
+  el.mute.setAttribute('aria-label', muted ? 'Unmute sound' : 'Mute sound');
+}
+
+function setMuted(m) {
+  if (muted === m) return;
+  muted = m;
+  // Muting also stops promoting the iOS audio session. Silencing the graph but
+  // leaving the silent element looping would keep the ring/silent switch
+  // overridden for a game that is making no sound — the exact override the
+  // player just asked us to stop doing.
+  if (muted) { if (silentEl) silentEl.pause(); }
+  else if (started) initAudio();          // re-arms unmuteIOS and resumes the context
+  applyMute();
+  try { localStorage.setItem('adh_mute', muted ? '1' : '0'); } catch (e) { /* private mode */ }
+}
+
 function initAudio() {
-  unmuteIOS();
+  if (!muted) unmuteIOS();
   if (actx) { if (actx.state === 'suspended') actx.resume(); return; }
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!AC) return;
   try { actx = new AC(); } catch (e) { return; }
 
-  master = actx.createGain(); master.gain.value = 0.85; master.connect(actx.destination);
+  master = actx.createGain(); master.gain.value = muted ? 0 : MASTER_GAIN; master.connect(actx.destination);
 
   const len = Math.floor(actx.sampleRate * 2);
   noiseBuf = actx.createBuffer(1, len, actx.sampleRate);
@@ -1848,8 +1925,9 @@ function recomputeTouch() {
 
 // A touch that lands on a panel belongs to the UI, not the game. Swallowing it
 // here (preventDefault) suppresses the synthetic click, which is why tapping
-// Y/N did nothing on a phone.
-const isUITouch = t => !!(t.target && t.target.closest && t.target.closest('.veil'));
+// Y/N did nothing on a phone. `.ui` covers controls that live outside a veil —
+// without it, a tap on the sound toggle would also jump.
+const isUITouch = t => !!(t.target && t.target.closest && t.target.closest('.veil, .ui'));
 
 function onTouchStart(e) {
   if (!sawTouch) { sawTouch = true; updateHint(); }   // detection was wrong; correct it live
@@ -3432,7 +3510,21 @@ el.pause.addEventListener('click', resumeGame);
 el.pause.addEventListener('touchend', e => { e.preventDefault(); resumeGame(); }, { passive: false });
 bindBtn(el.btnCard, saveCard);
 
+// The sound toggle sits outside every veil, so its events would otherwise reach
+// the window-level handlers that start the game and register jumps. Each one is
+// stopped at the button.
+el.mute.addEventListener('click', e => { e.stopPropagation(); setMuted(!muted); });
+el.mute.addEventListener('pointerdown', e => { e.stopPropagation(); });
+el.mute.addEventListener('touchstart', e => { e.stopPropagation(); }, { passive: true });
+el.mute.addEventListener('touchend', e => {
+  e.preventDefault(); e.stopPropagation(); setMuted(!muted);
+}, { passive: false });
+applyMute();                     // reflect a mute persisted from a previous visit
+
 window.addEventListener('keydown', e => {
+  if (e.code === 'KeyM' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    e.preventDefault(); setMuted(!muted); return;
+  }
   if (state === 'ride' && (e.code === 'Enter' || e.code === 'Escape')) { e.preventDefault(); pauseGame(); return; }
   if (state === 'paused') {
     if (e.code === 'Enter' || e.code === 'Escape' || e.code === 'Space') { e.preventDefault(); resumeGame(); }
@@ -3504,6 +3596,7 @@ function startGame() {
 
 window.addEventListener('keydown', e => {
   if (e.key === 'Tab' || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.code === 'KeyM') return;      // muting from the title must not drop you in
   startGame();
 });
 window.addEventListener('pointerdown', startGame);
