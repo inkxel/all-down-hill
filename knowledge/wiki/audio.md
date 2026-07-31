@@ -3,7 +3,7 @@ name: audio
 description: The WebAudio graph — wind, carve, impacts and the generative music bed, and how they react to the game.
 type: subsystem
 created: 2026-07-27
-last_updated: 2026-07-27
+last_updated: 2026-07-31
 confidence: high
 related: [[decisions/2026-07-27-generative-music]], [[physics]]
 ---
@@ -83,7 +83,38 @@ start high and glide into the first chord. Don't "fix" it.
 
 Music sits at `MUSIC_GAIN = 0.30`. It was 0.17 with a 28% speed duck, which made
 it vanish exactly where the player spends most of their time.
-**There is no mute control** — that is a known gap.
+~~**There is no mute control** — that is a known gap.~~ **Closed 2026-07-31** —
+see [[#Mute]] below.
+
+## Mute
+
+`M` on desktop, a 44px toggle bottom-right on touch, persisted to `localStorage`
+under `adh_mute`.
+
+**It is held on `master`, and it has to be.** Every other gain in the graph is
+owned by the per-frame update loop — `musicGain` by `updateMusic`, `windGain` and
+`carveGain` by `updateAudio` — so a zero written to any of them is gone on the
+next frame. `master` is the only node every voice routes through that the loop
+never writes to.
+
+> In a graph where an update loop owns most parameters, the loop-owned nodes are
+> not candidates for user-set state. Find the node the loop never touches.
+
+**Muting also pauses `silentEl`.** Leaving the silent clip looping would keep the
+iOS audio session promoted — and therefore keep the ring/silent switch overridden
+— for a game producing no sound, which is the precise override the player just
+asked to stop. Unmuting re-arms it via `initAudio()`.
+
+Two smaller things that were load-bearing:
+
+- `isUITouch` matches `.veil, .ui`, not just `.veil`. Without `.ui` a tap on the
+  toggle also registered as a jump, since a touch is a jump until it is dragged.
+- The toggle is anchored to a shared `--hint-bottom` custom property rather than
+  a fixed offset. At phone width the bottom hint runs nearly the full screen and
+  passed straight under it — visible only in a narrow-viewport screenshot.
+
+**`AudioParam` is float32-backed:** `gain.value = 0.85` reads back as
+`0.8500000238418579`. Don't assert exact equality against it.
 
 ## Removed
 
@@ -94,3 +125,8 @@ distracting." Landings still have their thud.
 
 ### 2026-07-27 — Article created
 [[journal/2026-07-27-music-and-dismount]]
+
+### 2026-07-31 — Mute control added; "there is no mute control" contradicted
+The iOS silent-switch bypass documented above is what made this overdue — the
+game overrode the hardware switch and offered nothing in its place.
+[[journal/2026-07-31-mute-and-readme]]

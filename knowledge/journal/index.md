@@ -19,3 +19,4 @@ date: 2026-07-28
 | [[2026-07-27-trick-chain]] — Trick chain + grinds | Added rock bounces, tree-crown springs and grindable logs feeding a trick chain; platform-appropriate crash prompt. |
 | [[2026-07-28-codex-pass]] — Codex pass | Codex review of the CPU issue and the new systems; confirmed the title-screen diagnosis and found a weather desync my determinism test was blind to. |
 | [[2026-07-28-session]] — Session — 2026-07-28 | — |
+| [[2026-07-31-mute-and-readme]] — Mute control + the README hook | Closed the two oldest open threads — a mute control the iOS silent-switch bypass had made overdue, and a README that never mentioned shared mountains. |
